@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from pipeline.strategy_evidence import (
     claim_is_stale,
+    evidence_defect,
     source_family,
     staleness_threshold,
 )
@@ -147,14 +148,14 @@ def _admissible_claims(
         if claim.status is not ClaimStatus.ACTIVE or claim.class_ is ClaimClass.OPERATIONAL:
             continue
         deltas: list[Delta] = []
-        canonical = True
+        admissible = True
         for item in claim.evidence:
             delta = store.get_delta(item.delta_id)
-            if delta is None or not is_canonical(delta):
-                canonical = False
+            if evidence_defect(claim, item, delta) is not None or delta is None:
+                admissible = False
                 break
             deltas.append(delta)
-        if not canonical or not deltas:
+        if not admissible or not deltas:
             excluded.append(claim.claim_id)
             continue
         entry = ManifestEntry(

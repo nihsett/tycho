@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
 
-from schemas.claim import Claim, ClaimClass, ClaimStatus, Confidence
+from schemas.claim import Claim, ClaimClass, ClaimStatus, Confidence, Evidence
 from schemas.config import TychoConfig
 from schemas.delta import (
     CANONICAL_GENERATED_BY,
@@ -21,6 +21,7 @@ from schemas.delta import (
     ChangeCategory,
     Delta,
     DeltaSchemaVersion,
+    Triage,
 )
 from schemas.strategy import (
     MAX_PREMISES_PER_CARD,
@@ -197,6 +198,36 @@ def confidence_ceiling(claims: list[Claim]) -> StrategyConfidence:
     return StrategyConfidence.LIKELY if weakest >= _CONFIDENCE_RANK[Confidence.LIKELY] else StrategyConfidence.SPECULATIVE
 
 
+def evidence_defect(claim: Claim, item: Evidence, delta: Delta | None) -> str | None:
+    """Return why this claim/evidence/Delta triple is inadmissible, or None.
+
+    Shared by the context builder and the premise resolver so a claim can never
+    be admitted to a session on evidence a card would then be rejected for.
+    """
+    if delta is None:
+        return f"unresolvable evidence {item.delta_id}"
+    if (
+        delta.schema_version is not DeltaSchemaVersion.V2
+        or delta.generated_by != CANONICAL_GENERATED_BY
+        or delta.prompt_version != CANONICAL_PROMPT_VERSION
+    ):
+        return f"noncanonical evidence {item.delta_id}"
+    # A noise Delta records that nothing durable changed.  It is audit and cost
+    # evidence, never a premise for a market conclusion.
+    if delta.triage is not Triage.MEANINGFUL:
+        return f"{delta.triage.value} evidence {item.delta_id}"
+    # The claim and its evidence must describe the same competitor through the
+    # same channel; a mismatch means the claim's provenance is wrong.
+    if delta.entity != claim.entity:
+        return f"evidence {item.delta_id} for a different entity ({delta.entity})"
+    if delta.source != item.source:
+        return (
+            f"evidence {item.delta_id} whose source ({delta.source}) does not match "
+            f"the recorded source ({item.source})"
+        )
+    return None
+
+
 # --- Resolution ------------------------------------------------------------
 
 
@@ -256,19 +287,9 @@ def _resolve_premise(
     deltas: list[Delta] = []
     for item in claim.evidence:
         delta = store.get_delta(item.delta_id)
-        if delta is None:
-            violations.append(
-                f"premise claim {claim_id} cites unresolvable evidence {item.delta_id}"
-            )
-            return None
-        if (
-            delta.schema_version is not DeltaSchemaVersion.V2
-            or delta.generated_by != CANONICAL_GENERATED_BY
-            or delta.prompt_version != CANONICAL_PROMPT_VERSION
-        ):
-            violations.append(
-                f"premise claim {claim_id} cites noncanonical evidence {item.delta_id}"
-            )
+        defect = evidence_defect(claim, item, delta)
+        if defect is not None or delta is None:
+            violations.append(f"premise claim {claim_id} cites {defect}")
             return None
         deltas.append(delta)
     if not deltas:
