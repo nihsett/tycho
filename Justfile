@@ -13,7 +13,7 @@
 project := env_var_or_default("TYCHO_PROJECT", "gen-lang-client-0110801105")
 region := env_var_or_default("TYCHO_REGION", "us-central1")
 python := env_var_or_default("TYCHO_PYTHON", "3.13")
-packages := "adapters experiments infra pipeline platform_spike runtime_agent schemas tests"
+packages := "adapters experiments infra pipeline platform_spike runtime_agent schemas strategy_agent tests"
 
 # Show every available command.
 default: help
@@ -67,6 +67,39 @@ local-stats:
 # Run the Gemini analyst calibration against the worked-example fixtures.
 calibrate:
     uv run python -m pipeline.calibrate_analyst
+
+# --- Local strategy council -------------------------------------------------
+#
+# Every recipe here is synthetic and offline: no Gemini call, no Google Cloud
+# access, and a disposable store that is never the real local fleet database.
+
+strategy_dir := env_var_or_default("TYCHO_STRATEGY_DIR", "data/strategy-local")
+
+# Run one synthetic strategy session end to end (one passed, one rejected card).
+strategy-session:
+    uv run python -m pipeline.run_strategy_local \
+        --data-dir {{ strategy_dir }} --output data/strategy_local_session.json
+
+# Run the synthetic session and print the rendered brief markdown.
+strategy-brief:
+    uv run python -m pipeline.run_strategy_local \
+        --data-dir {{ strategy_dir }} --output data/strategy_local_session.json \
+        --print-brief
+
+# Run only the strategy test suites.
+strategy-test:
+    uv run pytest tests/test_strategy_schemas.py tests/test_strategy_evidence.py \
+        tests/test_strategy_context.py tests/test_strategy_citations.py \
+        tests/test_strategy_council.py tests/test_strategy_persistence.py \
+        tests/test_strategy_agents.py tests/test_strategy_local_run.py
+
+# Print the strategy sessions and briefs held in the disposable local store.
+strategy-stats:
+    @uv run python -c "from pathlib import Path; from pipeline.local_backend import LocalBackend, LocalSettings; from schemas.config import load_config; store = LocalBackend(load_config('tycho.yaml'), LocalSettings(Path('{{ strategy_dir }}').resolve())); print({'sessions': [(s.session_id, s.state.value, len(s.passed_cards()), len(s.rejected_cards())) for s in store.strategy_sessions()], 'briefs': [b.brief_id for b in store.briefs()]}); store.close()"
+
+# Delete the disposable strategy store and its session report.
+strategy-clean:
+    rm -rf {{ strategy_dir }} data/strategy_local_session.json
 
 # --- Read-only cloud inspection --------------------------------------------
 

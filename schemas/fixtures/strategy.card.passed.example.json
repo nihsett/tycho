@@ -1,0 +1,39 @@
+{
+  "card_id": "stc_01M0YTEATHCED4T3JJ8FEGHQ8Q",
+  "statement": "Both Claude Code and Codex now ship workspace execution isolation as a standard control rather than an advanced option.",
+  "rationale": "Two independent vendors converged on comparable isolation defaults within one week, which changes what a buyer treats as table stakes when evaluating a coding agent.",
+  "inference_kind": "present_state",
+  "confidence": "likely",
+  "competing_explanation": "Both teams may be responding to the same enterprise procurement checklist rather than to each other, in which case the convergence says more about buyers than about product direction.",
+  "falsifier": "A subsequent release from either vendor that returns execution isolation to an opt-in advanced setting.",
+  "entities": [
+    "claude_code",
+    "codex"
+  ],
+  "scopes": [
+    "product/capabilities"
+  ],
+  "source_families": [
+    "claude_code/official_release",
+    "codex/official_release"
+  ],
+  "premises": [
+    {
+      "claim_id": "clm_100000000001Y3K3MJMKRQPV3X",
+      "claim_version": 1,
+      "delta_ids": [
+        "dlt_500000000000Z6QRR65WW65X29"
+      ]
+    },
+    {
+      "claim_id": "clm_300000000001YQBZC62ZR10S57",
+      "claim_version": 1,
+      "delta_ids": [
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ]
+    }
+  ],
+  "limitations": [],
+  "status": "passed",
+  "rejection_reasons": []
+}

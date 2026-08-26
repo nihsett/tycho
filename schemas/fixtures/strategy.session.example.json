@@ -1,0 +1,268 @@
+{
+  "session_id": "sts_01M0YTEASZTTY402CQTDJ3FTPB",
+  "strategy_version": "strategy-council@1",
+  "question": "What materially changed across the monitored coding-agent market, why does it matter, and what evidence could change this conclusion?",
+  "period": {
+    "from": "2026-08-19T09:00:00Z",
+    "to": "2026-08-26T09:00:00Z"
+  },
+  "input_manifest": [
+    {
+      "claim_id": "clm_400000000001Z18D7ZT5QNNR5W",
+      "claim_version": 1,
+      "entity": "gemini_cli",
+      "scope": "pricing",
+      "confidence": "confirmed",
+      "severity": "critical",
+      "delta_ids": [
+        "dlt_00000000000104D2BKBEV44T48"
+      ],
+      "source_families": [
+        "gemini_cli/official_release"
+      ],
+      "last_verified_at": "2026-08-22T09:00:00Z",
+      "stale": false,
+      "staleness_days": 30
+    },
+    {
+      "claim_id": "clm_100000000001Y3K3MJMKRQPV3X",
+      "claim_version": 1,
+      "entity": "claude_code",
+      "scope": "product/capabilities",
+      "confidence": "confirmed",
+      "severity": "notable",
+      "delta_ids": [
+        "dlt_500000000000Z6QRR65WW65X29"
+      ],
+      "source_families": [
+        "claude_code/official_release"
+      ],
+      "last_verified_at": "2026-08-24T09:00:00Z",
+      "stale": false,
+      "staleness_days": 60
+    },
+    {
+      "claim_id": "clm_200000000001YDFHGCBSRCBT4J",
+      "claim_version": 1,
+      "entity": "claude_code",
+      "scope": "product/capabilities",
+      "confidence": "confirmed",
+      "severity": "notable",
+      "delta_ids": [
+        "dlt_600000000000ZGM6KZX2VTTW2Y"
+      ],
+      "source_families": [
+        "claude_code/official_release"
+      ],
+      "last_verified_at": "2026-08-24T09:00:00Z",
+      "stale": false,
+      "staleness_days": 60
+    },
+    {
+      "claim_id": "clm_300000000001YQBZC62ZR10S57",
+      "claim_version": 1,
+      "entity": "codex",
+      "scope": "product/capabilities",
+      "confidence": "confirmed",
+      "severity": "notable",
+      "delta_ids": [
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ],
+      "source_families": [
+        "codex/official_release"
+      ],
+      "last_verified_at": "2026-08-22T09:00:00Z",
+      "stale": false,
+      "staleness_days": 60
+    }
+  ],
+  "manifest_hash": "3d02e2826cd47f3c50f5db92958ff1e419e545927d3dd714f0f6aa8016398481",
+  "metrics_evidence": [
+    {
+      "name": "meaningful_change_count",
+      "value": 4,
+      "delta_ids": [
+        "dlt_00000000000104D2BKBEV44T48",
+        "dlt_500000000000Z6QRR65WW65X29",
+        "dlt_600000000000ZGM6KZX2VTTW2Y",
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ]
+    },
+    {
+      "name": "meaningful_delta_count",
+      "value": 4,
+      "delta_ids": [
+        "dlt_00000000000104D2BKBEV44T48",
+        "dlt_500000000000Z6QRR65WW65X29",
+        "dlt_600000000000ZGM6KZX2VTTW2Y",
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ]
+    },
+    {
+      "name": "noise_delta_count",
+      "value": 0,
+      "delta_ids": []
+    },
+    {
+      "name": "change_category_count",
+      "value": 2,
+      "delta_ids": [
+        "dlt_00000000000104D2BKBEV44T48",
+        "dlt_500000000000Z6QRR65WW65X29",
+        "dlt_600000000000ZGM6KZX2VTTW2Y",
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ]
+    },
+    {
+      "name": "change_scope_count",
+      "value": 2,
+      "delta_ids": [
+        "dlt_00000000000104D2BKBEV44T48",
+        "dlt_500000000000Z6QRR65WW65X29",
+        "dlt_600000000000ZGM6KZX2VTTW2Y",
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ]
+    },
+    {
+      "name": "entity_coverage",
+      "value": 3,
+      "delta_ids": [
+        "dlt_00000000000104D2BKBEV44T48",
+        "dlt_500000000000Z6QRR65WW65X29",
+        "dlt_600000000000ZGM6KZX2VTTW2Y",
+        "dlt_700000000000ZTGMFSM8VFFV3K"
+      ]
+    },
+    {
+      "name": "days_since_latest_change",
+      "value": 2,
+      "delta_ids": [
+        "dlt_500000000000Z6QRR65WW65X29",
+        "dlt_600000000000ZGM6KZX2VTTW2Y"
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "card_id": "stc_01M0YTEATHCED4T3JJ8FEGHQ8Q",
+      "statement": "Both Claude Code and Codex now ship workspace execution isolation as a standard control rather than an advanced option.",
+      "rationale": "Two independent vendors converged on comparable isolation defaults within one week, which changes what a buyer treats as table stakes when evaluating a coding agent.",
+      "inference_kind": "present_state",
+      "confidence": "likely",
+      "competing_explanation": "Both teams may be responding to the same enterprise procurement checklist rather than to each other, in which case the convergence says more about buyers than about product direction.",
+      "falsifier": "A subsequent release from either vendor that returns execution isolation to an opt-in advanced setting.",
+      "entities": [
+        "claude_code",
+        "codex"
+      ],
+      "scopes": [
+        "product/capabilities"
+      ],
+      "source_families": [
+        "claude_code/official_release",
+        "codex/official_release"
+      ],
+      "premises": [
+        {
+          "claim_id": "clm_100000000001Y3K3MJMKRQPV3X",
+          "claim_version": 1,
+          "delta_ids": [
+            "dlt_500000000000Z6QRR65WW65X29"
+          ]
+        },
+        {
+          "claim_id": "clm_300000000001YQBZC62ZR10S57",
+          "claim_version": 1,
+          "delta_ids": [
+            "dlt_700000000000ZTGMFSM8VFFV3K"
+          ]
+        }
+      ],
+      "limitations": [],
+      "status": "passed",
+      "rejection_reasons": []
+    },
+    {
+      "card_id": "stc_01M0YTEATJYQ9BSPPF2C6K5FMF",
+      "statement": "Claude Code hardened its execution model because rivals were outpacing it on enterprise security.",
+      "rationale": "The release notes and the changelog both describe the same default sandbox, which shows the change was driven by competitive pressure.",
+      "inference_kind": "present_state",
+      "confidence": "likely",
+      "competing_explanation": "The team may simply have finished planned work.",
+      "falsifier": "A later release that reverts the default.",
+      "entities": [
+        "claude_code"
+      ],
+      "scopes": [
+        "product/capabilities"
+      ],
+      "source_families": [
+        "claude_code/official_release"
+      ],
+      "premises": [
+        {
+          "claim_id": "clm_100000000001Y3K3MJMKRQPV3X",
+          "claim_version": 1,
+          "delta_ids": [
+            "dlt_500000000000Z6QRR65WW65X29"
+          ]
+        },
+        {
+          "claim_id": "clm_200000000001YDFHGCBSRCBT4J",
+          "claim_version": 1,
+          "delta_ids": [
+            "dlt_600000000000ZGM6KZX2VTTW2Y"
+          ]
+        }
+      ],
+      "limitations": [],
+      "status": "rejected",
+      "rejection_reasons": [
+        "a cross-entity conclusion needs 2 distinct entities; got 1",
+        "a conclusion needs 2 independent source families; got 1 after mirrored-evidence normalization",
+        "conclusion asserts unsupported causation",
+        "conclusion asserts unsupported leadership"
+      ]
+    }
+  ],
+  "challenges": [
+    {
+      "card_id": "stc_01M0YTEATHCED4T3JJ8FEGHQ8Q",
+      "verdict": "pass",
+      "unsupported_premise_claim_ids": [],
+      "policy_violations": [],
+      "correction_request": null
+    }
+  ],
+  "agent_versions": {
+    "strategist": "tycho_strategist@1",
+    "challenger": "tycho_challenger@1",
+    "brief_writer": "tycho_brief_writer@1"
+  },
+  "model_versions": {
+    "strategist": "gemini-3.5-flash-lite",
+    "challenger": "gemini-3.5-flash-lite",
+    "brief_writer": "gemini-3.5-flash-lite"
+  },
+  "state": "completed",
+  "metrics": {
+    "cards_proposed": 2,
+    "cards_passed": 1,
+    "cards_rejected": 1,
+    "input_bytes": 5362,
+    "estimated_input_tokens": 1341,
+    "input_tokens": 300,
+    "output_tokens": 150,
+    "total_tokens": 450,
+    "latency_ms": 3
+  },
+  "run_ids": [
+    "sts_01M0YTEASZTTY402CQTDJ3FTPB:strategist",
+    "sts_01M0YTEASZTTY402CQTDJ3FTPB:challenger:0",
+    "sts_01M0YTEASZTTY402CQTDJ3FTPB:brief_writer"
+  ],
+  "brief_id": "brf_2026w35",
+  "error": null,
+  "created_at": "2026-08-26T09:00:00Z",
+  "updated_at": "2026-08-26T10:39:20.915457Z"
+}

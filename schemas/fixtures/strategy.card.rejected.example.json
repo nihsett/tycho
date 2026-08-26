@@ -1,0 +1,42 @@
+{
+  "card_id": "stc_01M0YTEATJYQ9BSPPF2C6K5FMF",
+  "statement": "Claude Code hardened its execution model because rivals were outpacing it on enterprise security.",
+  "rationale": "The release notes and the changelog both describe the same default sandbox, which shows the change was driven by competitive pressure.",
+  "inference_kind": "present_state",
+  "confidence": "likely",
+  "competing_explanation": "The team may simply have finished planned work.",
+  "falsifier": "A later release that reverts the default.",
+  "entities": [
+    "claude_code"
+  ],
+  "scopes": [
+    "product/capabilities"
+  ],
+  "source_families": [
+    "claude_code/official_release"
+  ],
+  "premises": [
+    {
+      "claim_id": "clm_100000000001Y3K3MJMKRQPV3X",
+      "claim_version": 1,
+      "delta_ids": [
+        "dlt_500000000000Z6QRR65WW65X29"
+      ]
+    },
+    {
+      "claim_id": "clm_200000000001YDFHGCBSRCBT4J",
+      "claim_version": 1,
+      "delta_ids": [
+        "dlt_600000000000ZGM6KZX2VTTW2Y"
+      ]
+    }
+  ],
+  "limitations": [],
+  "status": "rejected",
+  "rejection_reasons": [
+    "a cross-entity conclusion needs 2 distinct entities; got 1",
+    "a conclusion needs 2 independent source families; got 1 after mirrored-evidence normalization",
+    "conclusion asserts unsupported causation",
+    "conclusion asserts unsupported leadership"
+  ]
+}
