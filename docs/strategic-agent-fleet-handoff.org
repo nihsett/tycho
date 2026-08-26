@@ -16,14 +16,45 @@ fleet. Do not add web search, generic chat, recommendations, personas, or more
 agents in this task.
 
 * Start gate
-Do not begin until =docs/gemini-delta-backlog-repair-handoff.org= is complete and
-direct verification proves:
+The gate is split. Local work and production work are no longer blocked by the
+same condition.
+
+** Local implementation gate — OPEN (authorized 2026-08-26)
+The user explicitly authorized local implementation ahead of the physical
+BigQuery rename, because the read-only candidate audit passed:
+=tycho.deltas_v2_candidate= holds 50 strict =delta@2= rows with 0 hard failures,
+50 revalidated pairs, 61 hash-verified raw payloads, and 11 active claims that
+all resolve to canonical candidate evidence. See =docs/gemini-delta-backlog-repair-handoff.org=
+and the audit readback in =handoff.org=.
+
+Local code, strict schemas, deterministic validation, the local context builder,
+local session/lease persistence, synthetic fixtures, and the full test suite may
+therefore proceed now, under these conditions:
+- synthetic fixtures and disposable local stores only;
+- no read or write against production GCP;
+- no Gemini call;
+- no Agent Runtime deployment and no dashboard;
+- =data/tycho.sqlite3= and the main worktree are untouched.
+
+** Production gate — CLOSED
+Production deployment and live strategy runs remain blocked until all of the
+following are directly verified:
+- the physical BigQuery swap is complete: =tycho.deltas= is the fresh strict
+  v2-only table and the pre-migration table is archived as
+  =tycho.delta_audit_log_20260826=;
 - canonical =tycho.deltas= contains only Gemini =delta@2=;
 - no active claim cites legacy evidence;
 - production acquisition is Gemini-only;
-- tests pass and Scheduler/Runtime routing are healthy.
+- the final post-swap read-backs pass: endpoint, identity, and audience of the
+  live route are unchanged, Scheduler is resumed and healthy, and Runtime
+  routing is healthy;
+- tests pass.
 
-If any gate fails, stop and finish backlog repair first.
+Until the production gate opens, do not deploy the =Tycho Strategy Council=
+Agent Runtime, do not create its Scheduler job or dispatcher, and do not run a
+strategy session over production claims. The known blocker is BigQuery's
+post-streaming rename restriction; it is a timing constraint, not a defect in
+the candidate.
 
 * Read first
 Read completely:

@@ -51,6 +51,8 @@ supersedable store of *claims* — a living theory of each competitor. Consumers
 | claims        | Firestore     | versioned, lifecycle  |
 | analyst leases| Firestore     | transactional delivery identity |
 | Delta generation runs/leases | Firestore | retryable model-attempt identity |
+| strategy sessions | Firestore | write-once audit of one bounded session |
+| strategy leases | Firestore   | transactional (period, strategy_version) identity |
 | briefs        | Firestore     | write-once render     |
 | receipts      | Firestore     | append-only           |
 | config        | repo (YAML)   | git-versioned         |
@@ -65,9 +67,11 @@ local mode rather than wait. Local mode mirrors the same store interfaces:
 - The filesystem stores write-once raw payloads.
 - A durable SQLite outbox replaces Pub/Sub; analyst delivery is idempotent and
   retried after restart.
-- Transactional local analyst and Delta-generation leases mirror the cloud
-  delivery identities, so concurrent or replayed deliveries cannot start
-  duplicate model calls.
+- Transactional local analyst, Delta-generation, and strategy-session leases
+  mirror the cloud delivery identities, so concurrent or replayed deliveries
+  cannot start duplicate model calls.
+- Strategy sessions and briefs persist in SQLite with the same write-once
+  semantics and the same method signatures as the Firestore backend.
 - Failed/expired semantic generation pairs remain retryable before a later fetch;
   a valid noise result completes the pair without entering the outbox.
 - IDs, source timestamps, evidence links, lifecycle status, and raw hashes are
@@ -249,8 +253,10 @@ Rules:
   "created_at": "..."
 }
 #+end_src
-Claims pinned by (claim_id, version): brief stays reproducible after later
-supersessions.
+A brief written by the strategy council additionally carries
+=strategy_session_id= and the passed =strategy_card_ids=; analyst-era briefs
+leave both unset. Claims pinned by (claim_id, version): brief stays reproducible
+after later supersessions.
 
 ** DeliveryReceipt (Firestore: receipts/{receipt_id})
 #+begin_src json
@@ -444,6 +450,101 @@ recorded as a failed analyst run and is never sent to the model.
    check 1 -> supersede the dispute with the confirmed primary-source fact.
    The established traction claim remains active and its disputed badge clears.
 
+* Strategy council (Strategist, Challenger, Brief Writer)
+Three named ADK agents run over governed memory in one bounded, non-looping
+workflow. Together with the Analyst they are Tycho's four-agent fleet.
+
+A session answers exactly one fixed question:
+
+#+begin_quote
+What materially changed across the monitored coding-agent market, why does it
+matter, and what evidence could change this conclusion?
+#+end_quote
+
+The dispatcher accepts a bounded period and a request ID. It accepts no prompt
+text, so the question is a constant and not an input. Two triggers share the
+same code path: the weekly Cloud Scheduler session and the authenticated
+dashboard =Run Strategy Session= action.
+
+** Workflow
+#+begin_example
+bounded context builder (Python)
+  -> tycho_strategist
+  -> hard proposal validation
+  -> tycho_challenger
+  -> hard challenge gate
+  -> tycho_brief_writer
+  -> citation validation + write-once persistence
+#+end_example
+
+There is exactly one Strategist pass and one Challenger pass. There is no
+open-ended loop in v1: a model cannot talk its way past a failed check.
+
+** What the session may read
+Governed memory only: active non-operational claims whose evidence resolves
+entirely to canonical Gemini =delta@2= rows, their exact versions and staleness,
+period claim activity, and deterministic metrics computed from canonical Deltas.
+No web search, no raw GCS snapshot, no Memory Bank. New external evidence enters
+through acquisition first. Every metric carries the Delta IDs it was computed
+from. Context is capped by explicit bytes and estimated tokens; an oversized
+session fails durably before any model call rather than truncating evidence.
+
+** Evidence rules (Python is the final authority)
+The model proposes; =pipeline/strategy_evidence.py= decides. A card passes only
+when every rule holds:
+1. Every premise claim exists, is active, and matches the exact cited version.
+2. Every premise rests only on canonical Gemini =delta@2= rows.
+3. At least two distinct entities are represented.
+4. At least two distinct source families are represented.
+5. Source families are normalized deterministically. One vendor's own release
+   channels — GitHub releases, its mirrored changelog, its blog feed — are one
+   family. Evidence whose grounded quotes are textually identical after
+   normalization collapses into one witness even across families, so republished
+   official text can never read as independent corroboration.
+6. A stale premise (under =tycho.yaml= thresholds) is admissible only when the
+   card explicitly labels it as a limitation naming that claim, and confidence
+   is speculative.
+7. The conclusion may not assert removal, causation, intent, market leadership,
+   or future action without evidence that explicitly supports it. In v1 only
+   removal can be supported, and only by a =deprecation= change in a premise
+   Delta; causation, intent, leadership, and prediction are rejected outright.
+8. Confidence never exceeds the weakest required premise and is never
+   =confirmed=. A confirmed premise licenses at most =likely=.
+9. At most three cards survive one session.
+10. No model-generated citation, claim ID, version, Delta ID, metric, or count
+    is accepted without store lookup or recomputation. The Strategist emits only
+    =(claim_id, claim_version)= pairs; premise Delta IDs, entities, scopes, and
+    source families are all recomputed in Python.
+
+Model agreement is not evidence. A Challenger =pass= is quality control: it can
+only reject, never revive a card that failed a hard check. Cards rejected by
+either gate stay visible in the session audit and never reach the brief.
+
+** Cards, sessions, and briefs
+Strategy cards stay =present_state= while Tycho's only source families are
+duplicated official release channels. A passed card is persisted in its session,
+not promoted into a =Claim=; promotion to an inference claim would be a separate
+explicitly approved action under the existing evidence bars.
+
+Sessions and briefs are write-once. A session is created =running= and moves to
+exactly one terminal state; a rerun creates a new session. The lease identity is
+=(period_from, period_to, strategy_version)=, so a duplicate trigger returns the
+existing session without a model call, while a failed or expired session stays
+retryable.
+
+A brief cites =(claim_id, version)= through machine markers of the form
+=<claim id="clm_..." version="3"/>=, which a deterministic callback replaces with
+dashboard links. A brief never cites a URL. An unknown, malformed, or unpinned
+citation fails the run. Zero passed cards is a valid, valuable result: the
+session stores an empty brief stating that no defensible cross-entity pattern
+survived validation.
+
+** Redaction
+Persisted strategy events and exported traces carry structure only — session ID,
+agent name, state, card counts, rejection counts, claim IDs/versions, run IDs,
+token counts, latency. Prompts, model responses, claim statements, rationales,
+quotes, and brief prose are excluded by construction from an allowlist.
+
 * Repo layout
 #+begin_src
 tycho/
@@ -457,6 +558,7 @@ tycho/
     brief.py
     receipt.py
     config.py        # models for tycho.yaml; validate at startup
+    strategy.py      # premises, cards, challenges, sessions, brief drafts
   schemas/fixtures/
     observation.example.json
     delta.archive.legacy.example.json  # delta@1 audit compatibility only
@@ -467,15 +569,23 @@ tycho/
     claim.operational.example.json
     claim.superseded.example.json    # doubly-linked pair
     brief.example.json
+    brief.strategy.example.json      # brief written by the strategy council
+    strategy.card.passed.example.json
+    strategy.card.rejected.example.json
+    strategy.challenge.example.json
+    strategy.session.example.json
     receipt.example.json
   docs/
     tycho-spec.org   # this file
     architecture.md  # stub, grows into submission diagram
   adapters/          # github.py first; webpage.py, rss.py, search.py next
   pipeline/          # semantic_differ.py, acquire*.py, legacy differ/triage,
-                     # analyst.py, claims.py, generation leases
+                     # analyst.py, claims.py, generation leases,
+                     # strategy_context.py, strategy_evidence.py, strategy_lease.py
   experiments/        # read-only semantic historical replay
   runtime_agent/     # request-scoped Agent Runtime wrapper; no outer model
+  strategy_agent/    # the three named council agents, workflow, citations,
+                     # safe events, request contract, synthetic fixtures
   infra/             # bootstrap, additive Delta schema migration, deploy scripts
   tests/              # schema, grounding, retry, storage, and mode regressions
 #+end_src
@@ -508,7 +618,8 @@ tycho/
 - No auto-generated scrapers / per-source code synthesis. Operational claims
   select among EXISTING adapter options and record quirks only.
 - No dynamic ontology growth. The tree is a v1 constant.
-- No strategy-recommendation agent (vision tease only, in video).
+- No strategy-RECOMMENDATION agent. The strategy council concludes what is
+  presently true and what would falsify it; it never recommends an action.
 - No multi-tenancy. No auth. No more than 4 entities, 4 source types.
 - X/social adapter is optional; cut without guilt if flaky by day 3.
 

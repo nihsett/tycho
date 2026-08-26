@@ -77,6 +77,43 @@ that are injected before each fetch.
                                 voices staleness
 ```
 
+The strategy council reads the same claim store and canonical Delta table. It
+writes nothing back into them:
+
+```
+ Cloud Scheduler (weekly) ─┐
+                           ├──► strategy dispatcher (bounded period + request ID;
+ dashboard "Run Strategy" ─┘      no prompt text is accepted)
+                                        ▼
+                        transactional lease on (period, strategy_version)
+                          duplicate trigger ──► return existing session, no model call
+                                        ▼
+                        bounded context builder (Python, deterministic)
+                          active claims on canonical Delta@2 only
+                          exact versions + staleness + period activity
+                          metrics carrying their contributing Delta IDs
+                          byte/token budget ── over budget ──► durable failure
+                                        ▼
+                                 tycho_strategist        (≤ 3 draft cards)
+                                        ▼
+                        hard proposal validation (Python is the authority)
+                          pinning, canonical v2, ≥2 entities, ≥2 source families,
+                          mirrored-evidence collapse, staleness labels,
+                          confidence ceiling, conclusion-language policy
+                          failed ──► rejected before the Challenger sees it
+                                        ▼
+                                 tycho_challenger        (one pass per survivor)
+                                        ▼
+                        hard challenge gate — a pass can only reject, never revive
+                                        ▼
+                                 tycho_brief_writer      (passed cards only)
+                                        ▼
+                        citation validation → dashboard links
+                          unpinned / malformed / URL ──► the run fails
+                                        ▼
+                   write-once strategy session + brief → Firestore / SQLite
+```
+
 ## Components
 
 | Component | Kind | Runs on | Notes |
@@ -94,6 +131,13 @@ that are injected before each fetch.
 | Delta audit log | data | BigQuery `tycho.delta_audit_log_20260826` | immutable migration/rollback evidence only |
 | Observation log | data | BigQuery (partitioned) + Cloud Storage (raw) | append-only; the immutable "what happened" |
 | Brief writer | ADK agent | Cloud Run, weekly schedule | renders diff-of-beliefs; pins (claim_id, version) |
+| Strategist | ADK agent (`tycho_strategist`) | Strategy Council Runtime (not yet deployed) | proposes ≤3 present-state cross-entity conclusions; no tools, strict structured output |
+| Challenger | ADK agent (`tycho_challenger`) | same Runtime | independently checks one card against its pinned premises; its pass is quality control, not evidence |
+| Strategy brief writer | ADK agent (`tycho_brief_writer`) | same Runtime | writes the brief from passed cards only; cites claim versions, never URLs |
+| Strategy evidence rules | Python | `pipeline/strategy_evidence.py` | pinning, canonical-v2, entity/source-family diversity, staleness, confidence ceiling, conclusion-language policy |
+| Strategy context builder | Python | `pipeline/strategy_context.py` | deterministic bounded manifest and metrics; fails durably over budget |
+| Strategy sessions | data | Firestore / SQLite | write-once audit of cards, challenges, manifest hash, safe metrics |
+| Strategy leases | data | Firestore / SQLite | transactional `(period_from, period_to, strategy_version)` identity; duplicate triggers skip the model |
 | Q&A agent | ADK agent | Cloud Run | claims-only answers with evidence citations; refuses when no claim covers the question |
 | Delivery receipts | data | Firestore | (claim_id, version) delivered once per context; new version re-delivers |
 | Config | YAML in repo | — | canonical entity keys, sources, ontology, staleness clocks, schedules |
@@ -145,8 +189,15 @@ Accumulate facts; revise beliefs. Never the other way around.
   and trace-writer roles. It receives no GCS or Pub/Sub permissions.
 - Pub/Sub reaches the analyst through a separate authenticated dispatcher. The
   dispatcher sends only a validated `delta_id` and never writes claims.
+- The strategy dispatcher accepts only a bounded period and a request ID. It
+  rejects any extra field, so no caller can smuggle prompt text into an agent.
+- The strategy council agents hold no tools: no web search, no GCS, no Pub/Sub,
+  no Memory Bank, and no claim mutation. Its Runtime identity requests only
+  Firestore, BigQuery read/job, and trace-writer roles.
 - Model requests, responses, prompts, delta changes, and claim text are removed
   from persisted runtime spans; safe IDs, action names, and structural spans remain.
+  Strategy events are built from an allowlist of structural fields, so a
+  content-bearing field cannot leak by being added upstream.
 
 ## Observability
 
@@ -197,7 +248,8 @@ canonical Delta producer or rollback authority.
 ## Deliberate non-goals (v1 fence)
 
 No auto-generated scrapers; no dynamic ontology growth; no strategy
-recommendations (vision only); no multi-tenancy/auth; ≤4 entities,
+*recommendations* — the council concludes what is presently true and what would
+falsify it, and never proposes an action; no multi-tenancy/auth; ≤4 entities,
 ≤4 source types.
 
 ## Diagram TODO for submission
