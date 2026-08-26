@@ -57,6 +57,7 @@ from schemas.strategy import (
     StrategyCardDraft,
     StrategyProposal,
     StrategySession,
+    manifest_hash,
 )
 from strategy_agent.agents import (
     BRIEF_WRITER_NAME,
@@ -111,6 +112,12 @@ class StrategySessionStore(StrategyContextStore, StrategyEvidenceStore, Protocol
         finished_at: datetime,
         error: str,
     ) -> None: ...
+
+    def begin_strategy_session(
+        self,
+        session: StrategySession,
+        lease_expires_at: datetime,
+    ) -> StrategyLeaseDecision: ...
 
     def create_strategy_session(self, session: StrategySession) -> None: ...
 
@@ -383,14 +390,32 @@ async def run_strategy_session(
     started_at = now or datetime.now(UTC)
     window = period or default_period(started_at)
     session_id = new_prefixed_id("sts")
+    model_versions = ModelVersions(strategist=model, challenger=model, brief_writer=model)
 
-    lease = store.acquire_strategy_lease(
-        window.from_,
-        window.to,
-        strategy_version,
-        session_id,
-        started_at,
-        started_at + timedelta(seconds=STRATEGY_LEASE_SECONDS),
+    # The placeholder is deliberately empty: an unbuilt context has no manifest
+    # and no metrics yet.  It exists so that the lease and a READABLE running
+    # session appear together, before any context work or agent call.
+    placeholder = StrategySession(
+        session_id=session_id,
+        strategy_version=strategy_version,
+        question=STRATEGY_QUESTION,
+        period=window,
+        input_manifest=[],
+        manifest_hash=manifest_hash([]),
+        metrics_evidence=[],
+        agent_versions=AgentVersions(
+            strategist=STRATEGIST_VERSION,
+            challenger=CHALLENGER_VERSION,
+            brief_writer=BRIEF_WRITER_VERSION,
+        ),
+        model_versions=model_versions,
+        state=SessionState.RUNNING,
+        metrics=SessionMetrics(),
+        created_at=started_at,
+        updated_at=started_at,
+    )
+    lease = store.begin_strategy_session(
+        placeholder, started_at + timedelta(seconds=STRATEGY_LEASE_SECONDS)
     )
     if lease.state != "acquired":
         # A duplicate weekly trigger and a dashboard click land on the same
@@ -410,34 +435,25 @@ async def run_strategy_session(
         )
 
     events: list[StrategyEvent] = []
-    session: StrategySession | None = None
+    session: StrategySession = placeholder
     try:
-        # 1. Bounded context. An oversized period fails here, before any model.
+        # 1. Bounded context. An oversized period fails here, before any model,
+        #    and the placeholder session is already durable so the failure is
+        #    visible and retryable.
         context = build_strategy_context(store, config, period=window, now=started_at)
-        model_versions = ModelVersions(strategist=model, challenger=model, brief_writer=model)
-        session = StrategySession(
-            session_id=session_id,
-            strategy_version=strategy_version,
-            question=STRATEGY_QUESTION,
-            period=window,
-            input_manifest=context.manifest,
-            manifest_hash=context.manifest_hash,
-            metrics_evidence=context.metrics,
-            agent_versions=AgentVersions(
-                strategist=STRATEGIST_VERSION,
-                challenger=CHALLENGER_VERSION,
-                brief_writer=BRIEF_WRITER_VERSION,
-            ),
-            model_versions=model_versions,
-            state=SessionState.RUNNING,
-            metrics=SessionMetrics(
-                input_bytes=context.input_bytes,
-                estimated_input_tokens=context.estimated_input_tokens,
-            ),
-            created_at=started_at,
-            updated_at=started_at,
+        # Enrich the in-memory session; the durable document is rewritten by the
+        # single atomic commit at the end of the run.
+        session = placeholder.model_copy(
+            update={
+                "input_manifest": context.manifest,
+                "manifest_hash": context.manifest_hash,
+                "metrics_evidence": context.metrics,
+                "metrics": SessionMetrics(
+                    input_bytes=context.input_bytes,
+                    estimated_input_tokens=context.estimated_input_tokens,
+                ),
+            }
         )
-        store.create_strategy_session(session)
         events.append(
             StrategyEvent(
                 session_id=session_id,
@@ -460,21 +476,17 @@ async def run_strategy_session(
         # Never persist str(exc): Pydantic renders input_value, which can carry
         # model output, claim text, or a grounded quote.
         message = safe_error_text(exc, stage_for(exc))
-        if session is not None:
-            failed = session.model_copy(
-                update={
-                    "state": SessionState.FAILED,
-                    "error": message,
-                    "updated_at": finished_at,
-                }
-            )
-            # One transaction: the session goes failed and the lease is released
-            # for retry together, or neither does.
-            store.commit_strategy_session(failed, None, finished_at)
-        else:
-            store.fail_strategy_lease(
-                window.from_, window.to, strategy_version, session_id, finished_at, message
-            )
+        failed = session.model_copy(
+            update={
+                "state": SessionState.FAILED,
+                "error": message,
+                "updated_at": finished_at,
+            }
+        )
+        # One transaction: the session goes failed and the lease is released for
+        # retry together, or neither does.  A context failure lands here too,
+        # marking the placeholder rather than losing the attempt.
+        store.commit_strategy_session(failed, None, finished_at)
         raise
 
 

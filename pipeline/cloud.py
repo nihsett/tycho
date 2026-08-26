@@ -1004,6 +1004,72 @@ class CloudBackend:
 
         return commit(transaction)
 
+    def begin_strategy_session(
+        self,
+        session: StrategySession,
+        lease_expires_at: datetime,
+    ) -> StrategyLeaseDecision:
+        """Acquire the lease and create the running session in ONE transaction.
+
+        Mirrors LocalBackend: a racing request either wins and creates both, or
+        loses and can immediately read the winner's running session.
+        """
+        if session.state is not SessionState.RUNNING:
+            raise ValueError("begin_strategy_session requires a running session")
+        lease_ref = self.firestore.collection("strategy_leases").document(
+            strategy_lease_document_id(
+                session.period.from_, session.period.to, session.strategy_version
+            )
+        )
+        session_ref = self.firestore.collection("strategy_sessions").document(
+            session.session_id
+        )
+        started_at = session.created_at
+        transaction = self.firestore.transaction()
+
+        @firestore.transactional
+        def commit(txn: firestore.Transaction) -> StrategyLeaseDecision:
+            snapshot = lease_ref.get(transaction=txn)
+            record = snapshot.to_dict() or {}
+
+            attempt = 1
+            if snapshot.exists:
+                if record.get("state") == "completed":
+                    return StrategyLeaseDecision(
+                        "completed", record.get("session_id"), int(record.get("attempt", 0))
+                    )
+                expires_at = record.get("lease_expires_at")
+                if isinstance(expires_at, str):
+                    expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                if record.get("state") == "active" and strategy_lease_is_active(
+                    expires_at, started_at
+                ):
+                    return StrategyLeaseDecision(
+                        "active", record.get("session_id"), int(record.get("attempt", 0))
+                    )
+                attempt = int(record.get("attempt", 0)) + 1
+
+            payload = {
+                "period_from": session.period.from_,
+                "period_to": session.period.to,
+                "strategy_version": session.strategy_version,
+                "state": "active",
+                "session_id": session.session_id,
+                "attempt": attempt,
+                "started_at": started_at,
+                "lease_expires_at": lease_expires_at,
+                "finished_at": None,
+                "error": None,
+            }
+            if snapshot.exists:
+                txn.update(lease_ref, payload)
+            else:
+                txn.create(lease_ref, payload)
+            txn.create(session_ref, session.model_dump(mode="json", by_alias=True))
+            return StrategyLeaseDecision("acquired", session.session_id, attempt)
+
+        return commit(transaction)
+
     def complete_strategy_lease(
         self,
         period_from: datetime,
@@ -1124,6 +1190,18 @@ class CloudBackend:
                 raise SessionPersistenceError(
                     f"strategy session {session.session_id} is not running; it is write-once"
                 )
+            # Validate lease ownership BEFORE any write.  A session whose lease
+            # expired and was reclaimed must not still publish its brief.
+            lease_record = lease_snapshot.to_dict() or {}
+            if (
+                not lease_snapshot.exists
+                or lease_record.get("state") != "active"
+                or lease_record.get("session_id") != session.session_id
+            ):
+                raise SessionPersistenceError(
+                    f"session {session.session_id} does not hold an active lease for "
+                    "this period; refusing to commit"
+                )
             if brief_snapshot is not None and brief_snapshot.exists:
                 owner = (brief_snapshot.to_dict() or {}).get("strategy_session_id")
                 raise SessionPersistenceError(
@@ -1134,17 +1212,14 @@ class CloudBackend:
             if brief_ref is not None:
                 txn.create(brief_ref, brief.model_dump(mode="json", by_alias=True))
             txn.update(session_ref, session.model_dump(mode="json", by_alias=True))
-            if lease_snapshot.exists and (lease_snapshot.to_dict() or {}).get(
-                "session_id"
-            ) == session.session_id:
-                txn.update(
-                    lease_ref,
-                    {
-                        "state": lease_state,
-                        "finished_at": finished_at,
-                        "error": session.error,
-                    },
-                )
+            txn.update(
+                lease_ref,
+                {
+                    "state": lease_state,
+                    "finished_at": finished_at,
+                    "error": session.error,
+                },
+            )
 
         commit(transaction)
 

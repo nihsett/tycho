@@ -1195,6 +1195,109 @@ class LocalBackend:
             self.connection.rollback()
             raise
 
+    def begin_strategy_session(
+        self,
+        session: StrategySession,
+        lease_expires_at: datetime,
+    ) -> StrategyLeaseDecision:
+        """Acquire the lease and create the running session as ONE transaction.
+
+        Acquiring the lease first and creating the session afterwards leaves a
+        window in which a duplicate trigger sees an active lease but no readable
+        session.  Doing both here means a racing request either wins and creates
+        both, or loses and can immediately read the winner's running session.
+        """
+        if session.state is not SessionState.RUNNING:
+            raise ValueError("begin_strategy_session requires a running session")
+        lease_id = strategy_lease_document_id(
+            session.period.from_, session.period.to, session.strategy_version
+        )
+        started_at = session.created_at
+        now_text = started_at.isoformat()
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                "SELECT * FROM strategy_leases WHERE lease_id = ?", (lease_id,)
+            ).fetchone()
+
+            attempt = 1
+            if row is not None:
+                if row["state"] == "completed":
+                    self.connection.commit()
+                    return StrategyLeaseDecision(
+                        "completed", row["session_id"], int(row["attempt"])
+                    )
+                expires_at = datetime.fromisoformat(row["lease_expires_at"])
+                if row["state"] == "active" and strategy_lease_is_active(
+                    expires_at, started_at
+                ):
+                    self.connection.commit()
+                    return StrategyLeaseDecision(
+                        "active", row["session_id"], int(row["attempt"])
+                    )
+                attempt = int(row["attempt"]) + 1
+
+            if row is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO strategy_leases
+                        (lease_id, period_from, period_to, strategy_version, state,
+                         session_id, attempt, started_at, lease_expires_at)
+                    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+                    """,
+                    (
+                        lease_id,
+                        session.period.from_.isoformat(),
+                        session.period.to.isoformat(),
+                        session.strategy_version,
+                        session.session_id,
+                        attempt,
+                        now_text,
+                        lease_expires_at.isoformat(),
+                    ),
+                )
+            else:
+                self.connection.execute(
+                    """
+                    UPDATE strategy_leases
+                    SET state = 'active', session_id = ?, attempt = ?, started_at = ?,
+                        lease_expires_at = ?, finished_at = NULL, error = NULL
+                    WHERE lease_id = ?
+                    """,
+                    (
+                        session.session_id,
+                        attempt,
+                        now_text,
+                        lease_expires_at.isoformat(),
+                        lease_id,
+                    ),
+                )
+            self.connection.execute(
+                """
+                INSERT INTO strategy_sessions
+                    (session_id, period_from, period_to, strategy_version,
+                     manifest_hash, state, created_at, updated_at, brief_id, document)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session.session_id,
+                    session.period.from_.isoformat(),
+                    session.period.to.isoformat(),
+                    session.strategy_version,
+                    session.manifest_hash,
+                    session.state.value,
+                    session.created_at.isoformat(),
+                    session.updated_at.isoformat(),
+                    session.brief_id,
+                    self._document(session, by_alias=True),
+                ),
+            )
+            self.connection.commit()
+            return StrategyLeaseDecision("acquired", session.session_id, attempt)
+        except Exception:
+            self.connection.rollback()
+            raise
+
     def complete_strategy_lease(
         self,
         period_from: datetime,
@@ -1343,11 +1446,14 @@ class LocalBackend:
                 raise SessionPersistenceError(
                     f"strategy session {session.session_id} is not running; it is write-once"
                 )
-            self.connection.execute(
+            # The committing session must still own an ACTIVE lease.  Without
+            # this, a session whose lease expired and was reclaimed by another
+            # attempt could still write its brief and terminal state.
+            cursor = self.connection.execute(
                 """
                 UPDATE strategy_leases
                 SET state = ?, finished_at = ?, error = ?
-                WHERE lease_id = ? AND session_id = ?
+                WHERE lease_id = ? AND session_id = ? AND state = 'active'
                 """,
                 (
                     lease_state,
@@ -1357,6 +1463,11 @@ class LocalBackend:
                     session.session_id,
                 ),
             )
+            if cursor.rowcount != 1:
+                raise SessionPersistenceError(
+                    f"session {session.session_id} does not hold an active lease for "
+                    "this period; refusing to commit"
+                )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
