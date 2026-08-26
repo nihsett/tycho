@@ -131,12 +131,13 @@ writes nothing back into them:
 | Delta audit log | data | BigQuery `tycho.delta_audit_log_20260826` | immutable migration/rollback evidence only |
 | Observation log | data | BigQuery (partitioned) + Cloud Storage (raw) | append-only; the immutable "what happened" |
 | Brief writer | ADK agent | Cloud Run, weekly schedule | renders diff-of-beliefs; pins (claim_id, version) |
+| Strategy Council entrypoint | deterministic `BaseAgent` (`tycho_strategy_council`) | Strategy Council Runtime (not yet deployed) | parses only a bounded `StrategyRequest`; no outer model, no tools; drives the three agents through the governed workflow, never as a raw ADK sequence |
 | Strategist | ADK agent (`tycho_strategist`) | Strategy Council Runtime (not yet deployed) | proposes ≤3 present-state cross-entity conclusions; no tools, strict structured output |
 | Challenger | ADK agent (`tycho_challenger`) | same Runtime | independently checks one card against its pinned premises; its pass is quality control, not evidence |
 | Strategy brief writer | ADK agent (`tycho_brief_writer`) | same Runtime | writes the brief from passed cards only; cites claim versions, never URLs |
 | Strategy evidence rules | Python | `pipeline/strategy_evidence.py` | pinning, canonical-v2, entity/source-family diversity, staleness, confidence ceiling, conclusion-language policy |
 | Strategy context builder | Python | `pipeline/strategy_context.py` | deterministic bounded manifest and metrics; fails durably over budget |
-| Strategy sessions | data | Firestore / SQLite | write-once audit of cards, challenges, manifest hash, safe metrics |
+| Strategy sessions | data | Firestore / SQLite | write-once audit of cards, challenges, manifest hash, safe metrics; brief + terminal state + lease release commit atomically |
 | Strategy leases | data | Firestore / SQLite | transactional `(period_from, period_to, strategy_version)` identity; duplicate triggers skip the model |
 | Q&A agent | ADK agent | Cloud Run | claims-only answers with evidence citations; refuses when no claim covers the question |
 | Delivery receipts | data | Firestore | (claim_id, version) delivered once per context; new version re-delivers |
@@ -193,7 +194,12 @@ Accumulate facts; revise beliefs. Never the other way around.
   rejects any extra field, so no caller can smuggle prompt text into an agent.
 - The strategy council agents hold no tools: no web search, no GCS, no Pub/Sub,
   no Memory Bank, and no claim mutation. Its Runtime identity requests only
-  Firestore, BigQuery read/job, and trace-writer roles.
+  `roles/datastore.user`, `roles/bigquery.dataViewer`, `roles/bigquery.jobUser`,
+  and `roles/telemetry.tracesWriter`.
+- Durable strategy records never store `str(exception)`. Pydantic renders
+  `input_value`, so a model response or grounded quote could otherwise reach
+  storage; one sanitizer reduces every failure to stage, class, and a curated
+  reason.
 - Model requests, responses, prompts, delta changes, and claim text are removed
   from persisted runtime spans; safe IDs, action names, and structural spans remain.
   Strategy events are built from an allowlist of structural fields, so a

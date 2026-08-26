@@ -81,12 +81,57 @@ transfer paths disallowed. ADK's task mode attaches only its own internal
 finish-task tool; there is no search, storage, fetch, memory, or claim-mutation
 tool on any of them.
 
-=strategy_agent/app.py= builds the =tycho_strategy_council= sequence and the
-managed app. Nothing runs at import time: =agentplatform.init= lives inside the
-factory, so importing the package contacts no Google Cloud service. The declared
-identity requests =roles/datastore.user=, =roles/bigquery.dataViewer=,
-=roles/bigquery.jobUser=, and =roles/cloudtrace.agent= — no GCS, no Pub/Sub, no
-Memory Bank.
+** Governed Runtime entrypoint
+The deployed root agent is =StrategyCouncilAgent=, a deterministic =BaseAgent=
+wrapper following the =runtime_agent/agent.py= pattern. It is deliberately *not*
+a =SequentialAgent= over the three =LlmAgent= objects: that shape would run them
+back to back with no Python between them, which is exactly where every hard
+evidence check lives.
+
+The wrapper:
+- parses only a bounded =StrategyRequest= (period plus request ID; any extra
+  field is rejected, so prompt text cannot reach an agent);
+- constructs =CloudBackend= and the config inside the request, holding no live
+  client in the deployed object;
+- calls =run_strategy_session=, so the three named agents are invoked only
+  through the governed workflow;
+- returns only session ID, strategy version, state, card counts, brief ID, and a
+  skipped flag;
+- carries no outer model, no instruction, and no tools.
+
+=strategy_agent/app.py= builds the app in a factory. Nothing runs at import
+time: =agentplatform.init= lives inside =build_strategy_app=, so importing the
+package contacts no Google Cloud service. The declared identity requests
+=roles/datastore.user=, =roles/bigquery.dataViewer=, =roles/bigquery.jobUser=,
+and =roles/telemetry.tracesWriter= — the handoff's trace-writer role, not the
+broader legacy =roles/cloudtrace.agent=, which is now in the forbidden prefix
+list alongside storage, Pub/Sub, and Memory Bank.
+
+** Atomic persistence
+Saving the brief, moving the session to its terminal state, and releasing the
+lease are ONE store operation: =commit_strategy_session=, implemented with the
+same signature as a single SQLite =BEGIN IMMEDIATE= transaction and a single
+Firestore transaction.
+
+This closes the crash window that would otherwise leave a stored brief whose
+session is still =running= — a state that permanently blocks every retry for
+that period. Either all three writes land, or none do.
+
+Brief IDs are also now unique per session: =brf_2026w35-8xr31dpc=. The weekly
+period alone is not a safe key, because a retry after a failed session covers
+the same week and would collide with the abandoned attempt's write-once brief.
+=BriefId= accepts the plain weekly form and an optional session discriminator,
+so analyst-era briefs still validate.
+
+** Error redaction
+=strategy_agent/errors.py= is the single sanitizer. It reduces any exception to
+a stage, a class name, and a curated reason drawn from a fixed table; it never
+reads =str(exc)=. That matters because Pydantic's =ValidationError= renders
+=input_value=, so a malformed model response, a claim statement, or a grounded
+quote can otherwise end up inside a persisted session, lease, or log line.
+
+An unrecognised exception class collapses to a generic reason, so a new
+exception type cannot leak text simply by not having been considered yet.
 
 ** Model boundary
 =strategy_agent/invoker.py= is the only place a strategy agent reaches a model.
@@ -94,6 +139,15 @@ Memory Bank.
 *not* exercised in this task. Every test and the synthetic session use
 =ScriptedInvoker=, which returns pre-written structured payloads, so the entire
 workflow runs with zero provider calls.
+
+** Evidence consistency
+=evidence_defect()= is shared by the context builder and the premise resolver,
+so a claim can never be admitted to a session on evidence a card would then be
+rejected for. Beyond canonical =delta@2=, a premise's evidence must satisfy:
+- the Delta is =meaningful= — a noise Delta records that nothing durable
+  changed and is audit and cost evidence, never a premise;
+- the Delta's entity matches the claim's entity;
+- the Delta's source matches the source recorded on the claim's evidence entry.
 
 * Synthetic end-to-end session
 Command: =just strategy-session= (report at =data/strategy_local_session.json=,
@@ -108,8 +162,8 @@ Result:
 - manifest hash =3d02e2826cd47f3c50f5db92958ff1e419e545927d3dd714f0f6aa8016398481=;
 - context 5,362 bytes / ~1,341 estimated tokens, well inside the 200,000-byte
   and 50,000-token budget;
-- brief =brf_2026w35=, 994 rendered bytes, pinning exactly the two premise claim
-  versions of the passed card;
+- brief =brf_2026w35-<session>=, pinning exactly the two premise claim versions
+  of the passed card;
 - agent call order: =tycho_strategist=, =tycho_challenger=, =tycho_brief_writer=.
 
 ** The accepted conclusion
@@ -151,9 +205,28 @@ appears in the brief.
 | no GCS/web-search tool or permission | =::test_no_agent_has_a_web_search_or_storage_tool=, =::test_runtime_identity_requests_no_storage_pubsub_or_memory_bank= |
 | no claim mutation during a session | =test_strategy_council.py::test_session_never_mutates_claims_or_publishes=, =test_strategy_evidence.py::test_no_claim_mutation_during_a_normal_validation_pass= |
 
+Review-blocker coverage added after the first draft:
+
+| Blocker | Where |
+|---------+-------|
+| governed Runtime entrypoint, not a raw sequence | =test_strategy_agents.py::test_the_runtime_root_is_a_deterministic_wrapper_not_a_raw_sequence=, =::test_the_runtime_root_holds_no_model_and_no_tools= |
+| Runtime returns bounded IDs/state/counts only | =::test_the_runtime_returns_only_bounded_ids_state_and_counts= |
+| Runtime rejects anything but a bounded request | =::test_the_runtime_rejects_anything_but_a_bounded_request= |
+| trace-writer role, not the Cloud Trace agent role | =::test_runtime_identity_uses_the_handoff_trace_writer_role= |
+| atomic brief + session + lease commit | =test_strategy_recovery.py::test_a_failed_commit_writes_no_brief_session_state_or_lease_change=, =::test_a_brief_collision_rolls_back_the_whole_commit= |
+| a crash never permanently blocks retries | =::test_a_crash_before_the_commit_leaves_the_period_retryable= |
+| a retry creates a unique brief | =::test_a_retry_creates_a_unique_brief_for_its_new_session= |
+| a duplicate trigger finds a readable running session | =::test_a_concurrent_duplicate_trigger_finds_a_readable_running_session= |
+| commit refuses a non-terminal or already-terminal session | =::test_commit_refuses_a_running_terminal_state= |
+| a secret in model output never reaches storage | =::test_a_pydantic_error_carrying_model_output_is_never_persisted= |
+| the sanitizer never reads the exception message | =::test_the_sanitizer_never_reads_the_exception_message=, =::test_sanitized_text_is_bounded_and_structured=, =::test_events_never_carry_error_text= |
+| noise Deltas are not premises | =test_strategy_evidence.py::test_a_noise_delta_is_not_a_premise= |
+| Delta entity/source must match the claim | =::test_a_premise_whose_delta_entity_differs_is_rejected=, =::test_a_premise_whose_delta_source_differs_is_rejected= |
+| the context builder applies the same rule | =::test_the_context_builder_applies_the_same_evidence_rule= |
+
 * Repository gate
-=just check= (lock check, Ruff, compileall, pytest): *219 passed*, up from the
-92-test baseline. 127 of those are new strategy tests.
+=just check= (lock check, Ruff, compileall, pytest): *239 passed*, up from the
+92-test baseline. 147 of those are new strategy tests.
 
 * just recipes added
 | Recipe | Effect |
