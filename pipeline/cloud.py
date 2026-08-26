@@ -21,8 +21,14 @@ from pipeline.semantic_differ import (
     DeltaGenerationLeaseDecision,
     GenerationPair,
 )
+from pipeline.strategy_lease import (
+    StrategyLeaseDecision,
+    strategy_lease_document_id,
+    strategy_lease_is_active,
+)
 from google.cloud.firestore_v1.base_query import FieldFilter
 
+from schemas.brief import Brief
 from schemas.claim import Claim
 from schemas.delta import (
     CANONICAL_GENERATED_BY,
@@ -33,6 +39,7 @@ from schemas.delta import (
 )
 from schemas.observation import Observation
 from schemas.receipt import DeliveryReceipt
+from schemas.strategy import SessionState, StrategySession
 
 
 @dataclass(frozen=True)
@@ -912,6 +919,196 @@ class CloudBackend:
             return True
 
         return commit(transaction)
+
+    # --- Strategy sessions, leases, and briefs ------------------------------
+    #
+    # These mirror LocalBackend exactly so a strategy session behaves the same
+    # locally and in Firestore.  Nothing here touches BigQuery Delta writes,
+    # Pub/Sub, or GCS.
+
+    def list_canonical_deltas(self) -> list[Delta]:
+        """List canonical delta@2 rows; the archive table is never in scope."""
+        query = f"""
+            SELECT * FROM `{self.deltas_table}`
+            WHERE schema_version = 'delta@2'
+            ORDER BY computed_at
+        """
+        return [self._decode_delta_row(row) for row in self.bigquery.query(query).result()]
+
+    def acquire_strategy_lease(
+        self,
+        period_from: datetime,
+        period_to: datetime,
+        strategy_version: str,
+        session_id: str,
+        started_at: datetime,
+        lease_expires_at: datetime,
+    ) -> StrategyLeaseDecision:
+        lease_ref = self.firestore.collection("strategy_leases").document(
+            strategy_lease_document_id(period_from, period_to, strategy_version)
+        )
+        transaction = self.firestore.transaction()
+
+        @firestore.transactional
+        def commit(txn: firestore.Transaction) -> StrategyLeaseDecision:
+            snapshot = lease_ref.get(transaction=txn)
+            if not snapshot.exists:
+                txn.create(
+                    lease_ref,
+                    {
+                        "period_from": period_from,
+                        "period_to": period_to,
+                        "strategy_version": strategy_version,
+                        "state": "active",
+                        "session_id": session_id,
+                        "attempt": 1,
+                        "started_at": started_at,
+                        "lease_expires_at": lease_expires_at,
+                    },
+                )
+                return StrategyLeaseDecision("acquired", session_id, 1)
+
+            record = snapshot.to_dict() or {}
+            if record.get("state") == "completed":
+                return StrategyLeaseDecision(
+                    "completed", record.get("session_id"), int(record.get("attempt", 0))
+                )
+            expires_at = record.get("lease_expires_at")
+            if isinstance(expires_at, str):
+                expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if record.get("state") == "active" and strategy_lease_is_active(
+                expires_at, started_at
+            ):
+                return StrategyLeaseDecision(
+                    "active", record.get("session_id"), int(record.get("attempt", 0))
+                )
+
+            attempt = int(record.get("attempt", 0)) + 1
+            txn.update(
+                lease_ref,
+                {
+                    "period_from": period_from,
+                    "period_to": period_to,
+                    "strategy_version": strategy_version,
+                    "state": "active",
+                    "session_id": session_id,
+                    "attempt": attempt,
+                    "started_at": started_at,
+                    "lease_expires_at": lease_expires_at,
+                    "finished_at": None,
+                    "error": None,
+                },
+            )
+            return StrategyLeaseDecision("acquired", session_id, attempt)
+
+        return commit(transaction)
+
+    def complete_strategy_lease(
+        self,
+        period_from: datetime,
+        period_to: datetime,
+        strategy_version: str,
+        session_id: str,
+        finished_at: datetime,
+    ) -> None:
+        lease_ref = self.firestore.collection("strategy_leases").document(
+            strategy_lease_document_id(period_from, period_to, strategy_version)
+        )
+        transaction = self.firestore.transaction()
+
+        @firestore.transactional
+        def commit(txn: firestore.Transaction) -> None:
+            snapshot = lease_ref.get(transaction=txn)
+            record = snapshot.to_dict() or {}
+            if not snapshot.exists or record.get("session_id") != session_id:
+                return
+            txn.update(
+                lease_ref,
+                {"state": "completed", "finished_at": finished_at, "error": None},
+            )
+
+        commit(transaction)
+
+    def fail_strategy_lease(
+        self,
+        period_from: datetime,
+        period_to: datetime,
+        strategy_version: str,
+        session_id: str,
+        finished_at: datetime,
+        error: str,
+    ) -> None:
+        lease_ref = self.firestore.collection("strategy_leases").document(
+            strategy_lease_document_id(period_from, period_to, strategy_version)
+        )
+        transaction = self.firestore.transaction()
+
+        @firestore.transactional
+        def commit(txn: firestore.Transaction) -> None:
+            snapshot = lease_ref.get(transaction=txn)
+            record = snapshot.to_dict() or {}
+            if not snapshot.exists or record.get("session_id") != session_id:
+                return
+            txn.update(
+                lease_ref,
+                {"state": "failed", "finished_at": finished_at, "error": error[:500]},
+            )
+
+        commit(transaction)
+
+    def create_strategy_session(self, session: StrategySession) -> None:
+        self.firestore.collection("strategy_sessions").document(session.session_id).create(
+            session.model_dump(mode="json", by_alias=True)
+        )
+
+    def finalize_strategy_session(self, session: StrategySession) -> None:
+        if session.state is SessionState.RUNNING:
+            raise ValueError("finalize_strategy_session requires a terminal state")
+        session_ref = self.firestore.collection("strategy_sessions").document(
+            session.session_id
+        )
+        transaction = self.firestore.transaction()
+
+        @firestore.transactional
+        def commit(txn: firestore.Transaction) -> None:
+            snapshot = session_ref.get(transaction=txn)
+            record = snapshot.to_dict() or {}
+            if not snapshot.exists or record.get("state") != SessionState.RUNNING.value:
+                raise ValueError(
+                    f"strategy session {session.session_id} is not running; it is write-once"
+                )
+            txn.update(session_ref, session.model_dump(mode="json", by_alias=True))
+
+        commit(transaction)
+
+    def get_strategy_session(self, session_id: str) -> StrategySession | None:
+        snapshot = self.firestore.collection("strategy_sessions").document(session_id).get()
+        return StrategySession.model_validate(snapshot.to_dict()) if snapshot.exists else None
+
+    def strategy_sessions(self) -> list[StrategySession]:
+        return [
+            StrategySession.model_validate(snapshot.to_dict())
+            for snapshot in self.firestore.collection("strategy_sessions").stream()
+        ]
+
+    def create_brief_once(self, brief: Brief) -> bool:
+        try:
+            self.firestore.collection("briefs").document(brief.brief_id).create(
+                brief.model_dump(mode="json", by_alias=True)
+            )
+        except AlreadyExists:
+            return False
+        return True
+
+    def get_brief(self, brief_id: str) -> Brief | None:
+        snapshot = self.firestore.collection("briefs").document(brief_id).get()
+        return Brief.model_validate(snapshot.to_dict()) if snapshot.exists else None
+
+    def briefs(self) -> list[Brief]:
+        return [
+            Brief.model_validate(snapshot.to_dict())
+            for snapshot in self.firestore.collection("briefs").stream()
+        ]
 
     def publish_delta(self, delta: Delta) -> str:
         if delta.schema_version is not DeltaSchemaVersion.V2:

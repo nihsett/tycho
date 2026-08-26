@@ -75,6 +75,8 @@ def test_local_fleet_persists_hash_gate_claims_and_verification(tmp_path):
             "receipts": 0,
             "analyst_runs": 0,
             "alerts": 0,
+            "strategy_sessions": 0,
+            "briefs": 0,
             "outbox_pending": 0,
         }
 

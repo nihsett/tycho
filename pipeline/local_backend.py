@@ -21,11 +21,18 @@ from pipeline.semantic_differ import (
     DeltaGenerationLeaseDecision,
     GenerationPair,
 )
+from pipeline.strategy_lease import (
+    StrategyLeaseDecision,
+    strategy_lease_document_id,
+    strategy_lease_is_active,
+)
+from schemas.brief import Brief
 from schemas.claim import Claim
 from schemas.config import TychoConfig
 from schemas.delta import Delta, DeltaSchemaVersion, Triage
 from schemas.observation import Observation
 from schemas.receipt import DeliveryReceipt
+from schemas.strategy import SessionState, StrategySession
 
 
 @dataclass(frozen=True)
@@ -211,6 +218,42 @@ class LocalBackend:
             );
             CREATE INDEX IF NOT EXISTS delta_generation_leases_key
                 ON delta_generation_leases(obs_before, obs_after, generated_by, prompt_version);
+
+            CREATE TABLE IF NOT EXISTS strategy_sessions (
+                session_id TEXT PRIMARY KEY,
+                period_from TEXT NOT NULL,
+                period_to TEXT NOT NULL,
+                strategy_version TEXT NOT NULL,
+                manifest_hash TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('running', 'completed', 'failed')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                brief_id TEXT,
+                document TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS strategy_sessions_period
+                ON strategy_sessions(period_from, period_to, strategy_version, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS strategy_leases (
+                lease_id TEXT PRIMARY KEY,
+                period_from TEXT NOT NULL,
+                period_to TEXT NOT NULL,
+                strategy_version TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('active', 'completed', 'failed')),
+                session_id TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                started_at TEXT NOT NULL,
+                lease_expires_at TEXT NOT NULL,
+                finished_at TEXT,
+                error TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS briefs (
+                brief_id TEXT PRIMARY KEY,
+                strategy_session_id TEXT,
+                created_at TEXT NOT NULL,
+                document TEXT NOT NULL
+            );
             """
         )
         columns = {
@@ -1070,6 +1113,219 @@ class LocalBackend:
             )
         return cursor.rowcount == 1
 
+    # --- Strategy sessions, leases, and briefs ------------------------------
+
+    def list_claims(self) -> list[Claim]:
+        """Cloud-parity name for the full claim listing."""
+        return self.claims()
+
+    def list_canonical_deltas(self) -> list[Delta]:
+        """Cloud-parity name for the canonical delta@2 listing."""
+        return self.deltas()
+
+    def acquire_strategy_lease(
+        self,
+        period_from: datetime,
+        period_to: datetime,
+        strategy_version: str,
+        session_id: str,
+        started_at: datetime,
+        lease_expires_at: datetime,
+    ) -> StrategyLeaseDecision:
+        """Atomically own one (period, strategy_version) strategy identity."""
+        lease_id = strategy_lease_document_id(period_from, period_to, strategy_version)
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                "SELECT * FROM strategy_leases WHERE lease_id = ?", (lease_id,)
+            ).fetchone()
+            if row is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO strategy_leases
+                        (lease_id, period_from, period_to, strategy_version, state,
+                         session_id, attempt, started_at, lease_expires_at)
+                    VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?)
+                    """,
+                    (
+                        lease_id,
+                        period_from.isoformat(),
+                        period_to.isoformat(),
+                        strategy_version,
+                        session_id,
+                        started_at.isoformat(),
+                        lease_expires_at.isoformat(),
+                    ),
+                )
+                self.connection.commit()
+                return StrategyLeaseDecision("acquired", session_id, 1)
+
+            if row["state"] == "completed":
+                self.connection.commit()
+                return StrategyLeaseDecision(
+                    "completed", row["session_id"], int(row["attempt"])
+                )
+            expires_at = datetime.fromisoformat(row["lease_expires_at"])
+            if row["state"] == "active" and strategy_lease_is_active(expires_at, started_at):
+                self.connection.commit()
+                return StrategyLeaseDecision(
+                    "active", row["session_id"], int(row["attempt"])
+                )
+
+            attempt = int(row["attempt"]) + 1
+            self.connection.execute(
+                """
+                UPDATE strategy_leases
+                SET state = 'active', session_id = ?, attempt = ?, started_at = ?,
+                    lease_expires_at = ?, finished_at = NULL, error = NULL
+                WHERE lease_id = ?
+                """,
+                (
+                    session_id,
+                    attempt,
+                    started_at.isoformat(),
+                    lease_expires_at.isoformat(),
+                    lease_id,
+                ),
+            )
+            self.connection.commit()
+            return StrategyLeaseDecision("acquired", session_id, attempt)
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def complete_strategy_lease(
+        self,
+        period_from: datetime,
+        period_to: datetime,
+        strategy_version: str,
+        session_id: str,
+        finished_at: datetime,
+    ) -> None:
+        lease_id = strategy_lease_document_id(period_from, period_to, strategy_version)
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE strategy_leases
+                SET state = 'completed', finished_at = ?, error = NULL
+                WHERE lease_id = ? AND session_id = ?
+                """,
+                (finished_at.isoformat(), lease_id, session_id),
+            )
+
+    def fail_strategy_lease(
+        self,
+        period_from: datetime,
+        period_to: datetime,
+        strategy_version: str,
+        session_id: str,
+        finished_at: datetime,
+        error: str,
+    ) -> None:
+        """Leave the identity retryable: a failed session is not a completed one."""
+        lease_id = strategy_lease_document_id(period_from, period_to, strategy_version)
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE strategy_leases
+                SET state = 'failed', finished_at = ?, error = ?
+                WHERE lease_id = ? AND session_id = ?
+                """,
+                (finished_at.isoformat(), error[:500], lease_id, session_id),
+            )
+
+    def create_strategy_session(self, session: StrategySession) -> None:
+        """Write-once session creation; a rerun creates a new session ID."""
+        with self.connection:
+            self.connection.execute(
+                """
+                INSERT INTO strategy_sessions
+                    (session_id, period_from, period_to, strategy_version,
+                     manifest_hash, state, created_at, updated_at, brief_id, document)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session.session_id,
+                    session.period.from_.isoformat(),
+                    session.period.to.isoformat(),
+                    session.strategy_version,
+                    session.manifest_hash,
+                    session.state.value,
+                    session.created_at.isoformat(),
+                    session.updated_at.isoformat(),
+                    session.brief_id,
+                    self._document(session, by_alias=True),
+                ),
+            )
+
+    def finalize_strategy_session(self, session: StrategySession) -> None:
+        """Move a running session to its single terminal state, once."""
+        if session.state is SessionState.RUNNING:
+            raise ValueError("finalize_strategy_session requires a terminal state")
+        with self.connection:
+            cursor = self.connection.execute(
+                """
+                UPDATE strategy_sessions
+                SET state = ?, updated_at = ?, brief_id = ?, document = ?
+                WHERE session_id = ? AND state = 'running'
+                """,
+                (
+                    session.state.value,
+                    session.updated_at.isoformat(),
+                    session.brief_id,
+                    self._document(session, by_alias=True),
+                    session.session_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(
+                    f"strategy session {session.session_id} is not running; it is write-once"
+                )
+
+    def get_strategy_session(self, session_id: str) -> StrategySession | None:
+        row = self.connection.execute(
+            "SELECT document FROM strategy_sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        return None if row is None else StrategySession.model_validate_json(row["document"])
+
+    def strategy_sessions(self) -> list[StrategySession]:
+        rows = self.connection.execute(
+            "SELECT document FROM strategy_sessions ORDER BY created_at, rowid"
+        ).fetchall()
+        return [StrategySession.model_validate_json(row["document"]) for row in rows]
+
+    def create_brief_once(self, brief: Brief) -> bool:
+        """Briefs are write-once renders; a second write is refused, not merged."""
+        try:
+            with self.connection:
+                self.connection.execute(
+                    """
+                    INSERT INTO briefs (brief_id, strategy_session_id, created_at, document)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        brief.brief_id,
+                        brief.strategy_session_id,
+                        brief.created_at.isoformat(),
+                        self._document(brief, by_alias=True),
+                    ),
+                )
+        except sqlite3.IntegrityError:
+            return False
+        return True
+
+    def get_brief(self, brief_id: str) -> Brief | None:
+        row = self.connection.execute(
+            "SELECT document FROM briefs WHERE brief_id = ?", (brief_id,)
+        ).fetchone()
+        return None if row is None else Brief.model_validate_json(row["document"])
+
+    def briefs(self) -> list[Brief]:
+        rows = self.connection.execute(
+            "SELECT document FROM briefs ORDER BY created_at, rowid"
+        ).fetchall()
+        return [Brief.model_validate_json(row["document"]) for row in rows]
+
     def observations(self) -> list[Observation]:
         rows = self.connection.execute(
             "SELECT document FROM observations ORDER BY fetched_at, rowid"
@@ -1114,6 +1370,8 @@ class LocalBackend:
             "receipts",
             "analyst_runs",
             "alerts",
+            "strategy_sessions",
+            "briefs",
         ):
             row = self.connection.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
             result[table] = int(row["count"])
