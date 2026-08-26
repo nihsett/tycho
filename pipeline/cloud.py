@@ -22,6 +22,7 @@ from pipeline.semantic_differ import (
     GenerationPair,
 )
 from pipeline.strategy_lease import (
+    SessionPersistenceError,
     StrategyLeaseDecision,
     strategy_lease_document_id,
     strategy_lease_is_active,
@@ -1078,6 +1079,72 @@ class CloudBackend:
                     f"strategy session {session.session_id} is not running; it is write-once"
                 )
             txn.update(session_ref, session.model_dump(mode="json", by_alias=True))
+
+        commit(transaction)
+
+    def commit_strategy_session(
+        self,
+        session: StrategySession,
+        brief: Brief | None,
+        finished_at: datetime,
+    ) -> None:
+        """Persist brief, session terminal state, and lease in ONE transaction.
+
+        Mirrors LocalBackend exactly: a crash cannot leave a stored brief whose
+        session is still running, which is the state that would permanently
+        block a retry.
+        """
+        if session.state is SessionState.RUNNING:
+            raise ValueError("commit_strategy_session requires a terminal state")
+        session_ref = self.firestore.collection("strategy_sessions").document(
+            session.session_id
+        )
+        lease_ref = self.firestore.collection("strategy_leases").document(
+            strategy_lease_document_id(
+                session.period.from_, session.period.to, session.strategy_version
+            )
+        )
+        brief_ref = (
+            self.firestore.collection("briefs").document(brief.brief_id)
+            if brief is not None
+            else None
+        )
+        lease_state = "completed" if session.state is SessionState.COMPLETED else "failed"
+        transaction = self.firestore.transaction()
+
+        @firestore.transactional
+        def commit(txn: firestore.Transaction) -> None:
+            # All reads must precede all writes inside a Firestore transaction.
+            session_snapshot = session_ref.get(transaction=txn)
+            brief_snapshot = brief_ref.get(transaction=txn) if brief_ref else None
+            lease_snapshot = lease_ref.get(transaction=txn)
+
+            record = session_snapshot.to_dict() or {}
+            if not session_snapshot.exists or record.get("state") != SessionState.RUNNING.value:
+                raise SessionPersistenceError(
+                    f"strategy session {session.session_id} is not running; it is write-once"
+                )
+            if brief_snapshot is not None and brief_snapshot.exists:
+                owner = (brief_snapshot.to_dict() or {}).get("strategy_session_id")
+                raise SessionPersistenceError(
+                    f"brief {brief.brief_id} already exists (session {owner}); "
+                    "briefs are write-once"
+                )
+
+            if brief_ref is not None:
+                txn.create(brief_ref, brief.model_dump(mode="json", by_alias=True))
+            txn.update(session_ref, session.model_dump(mode="json", by_alias=True))
+            if lease_snapshot.exists and (lease_snapshot.to_dict() or {}).get(
+                "session_id"
+            ) == session.session_id:
+                txn.update(
+                    lease_ref,
+                    {
+                        "state": lease_state,
+                        "finished_at": finished_at,
+                        "error": session.error,
+                    },
+                )
 
         commit(transaction)
 

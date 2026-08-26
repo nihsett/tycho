@@ -16,6 +16,10 @@ from typing import Literal
 StrategyLeaseState = Literal["acquired", "completed", "active"]
 
 
+class SessionPersistenceError(RuntimeError):
+    """A write-once session/brief/lease commit could not be applied."""
+
+
 @dataclass(frozen=True)
 class StrategyLeaseDecision:
     """Result of the atomic acquire operation for one strategy period."""

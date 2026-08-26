@@ -22,6 +22,7 @@ from pipeline.semantic_differ import (
     GenerationPair,
 )
 from pipeline.strategy_lease import (
+    SessionPersistenceError,
     StrategyLeaseDecision,
     strategy_lease_document_id,
     strategy_lease_is_active,
@@ -1281,6 +1282,85 @@ class LocalBackend:
                 raise ValueError(
                     f"strategy session {session.session_id} is not running; it is write-once"
                 )
+
+    def commit_strategy_session(
+        self,
+        session: StrategySession,
+        brief: Brief | None,
+        finished_at: datetime,
+    ) -> None:
+        """Persist brief, session terminal state, and lease as ONE transaction.
+
+        A crash therefore cannot leave a stored brief whose session is still
+        running, which is the state that would permanently block a retry: either
+        all three land or none do.
+        """
+        if session.state is SessionState.RUNNING:
+            raise ValueError("commit_strategy_session requires a terminal state")
+        lease_id = strategy_lease_document_id(
+            session.period.from_, session.period.to, session.strategy_version
+        )
+        lease_state = "completed" if session.state is SessionState.COMPLETED else "failed"
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            if brief is not None:
+                existing = self.connection.execute(
+                    "SELECT strategy_session_id FROM briefs WHERE brief_id = ?",
+                    (brief.brief_id,),
+                ).fetchone()
+                if existing is not None:
+                    raise SessionPersistenceError(
+                        f"brief {brief.brief_id} already exists "
+                        f"(session {existing['strategy_session_id']}); briefs are write-once"
+                    )
+                self.connection.execute(
+                    """
+                    INSERT INTO briefs (brief_id, strategy_session_id, created_at, document)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        brief.brief_id,
+                        brief.strategy_session_id,
+                        brief.created_at.isoformat(),
+                        self._document(brief, by_alias=True),
+                    ),
+                )
+            cursor = self.connection.execute(
+                """
+                UPDATE strategy_sessions
+                SET state = ?, updated_at = ?, brief_id = ?, document = ?
+                WHERE session_id = ? AND state = 'running'
+                """,
+                (
+                    session.state.value,
+                    session.updated_at.isoformat(),
+                    session.brief_id,
+                    self._document(session, by_alias=True),
+                    session.session_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise SessionPersistenceError(
+                    f"strategy session {session.session_id} is not running; it is write-once"
+                )
+            self.connection.execute(
+                """
+                UPDATE strategy_leases
+                SET state = ?, finished_at = ?, error = ?
+                WHERE lease_id = ? AND session_id = ?
+                """,
+                (
+                    lease_state,
+                    finished_at.isoformat(),
+                    session.error,
+                    lease_id,
+                    session.session_id,
+                ),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def get_strategy_session(self, session_id: str) -> StrategySession | None:
         row = self.connection.execute(

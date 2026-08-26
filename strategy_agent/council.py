@@ -68,6 +68,7 @@ from strategy_agent.agents import (
     build_strategist,
 )
 from strategy_agent.citations import CitationError, replace_citations
+from strategy_agent.errors import Stage, safe_error_text
 from strategy_agent.events import StrategyEvent
 from strategy_agent.invoker import AgentInvoker
 
@@ -115,6 +116,13 @@ class StrategySessionStore(StrategyContextStore, StrategyEvidenceStore, Protocol
 
     def finalize_strategy_session(self, session: StrategySession) -> None: ...
 
+    def commit_strategy_session(
+        self,
+        session: StrategySession,
+        brief: Brief | None,
+        finished_at: datetime,
+    ) -> None: ...
+
     def get_strategy_session(self, session_id: str) -> StrategySession | None: ...
 
     def create_brief_once(self, brief: Brief) -> bool: ...
@@ -131,10 +139,29 @@ class StrategySessionResult:
     skip_reason: str | None = None
 
 
-def brief_id_for(period: SessionPeriod) -> str:
-    """Weekly brief identity, derived from the period the session covers."""
+def stage_for(exc: BaseException) -> Stage:
+    """Map an exception to the workflow stage that raised it."""
+    return {
+        "StrategyContextTooLarge": Stage.CONTEXT,
+        "CitationError": Stage.CITATION,
+        "SessionPersistenceError": Stage.PERSISTENCE,
+        "StrategyModelError": Stage.STRATEGIST,
+        "ValidationError": Stage.PROPOSAL_VALIDATION,
+    }.get(type(exc).__name__, Stage.UNKNOWN)
+
+
+def brief_id_for(period: SessionPeriod, session_id: str | None = None) -> str:
+    """Weekly brief identity, made unique per session.
+
+    The period alone is not a safe key: a retry after a failed session covers
+    the same week and would collide with the abandoned attempt's brief. The
+    session discriminator keeps every attempt's brief distinct and write-once.
+    """
     year, week, _ = period.to.isocalendar()
-    return f"brf_{year:04d}w{week:02d}"
+    base = f"brf_{year:04d}w{week:02d}"
+    if session_id is None:
+        return base
+    return f"{base}-{session_id.removeprefix('sts_')[-8:].lower()}"
 
 
 def _card_from_validation(
@@ -430,7 +457,9 @@ async def run_strategy_session(
         return result
     except Exception as exc:
         finished_at = datetime.now(UTC)
-        message = f"{type(exc).__name__}: {exc}"[:300]
+        # Never persist str(exc): Pydantic renders input_value, which can carry
+        # model output, claim text, or a grounded quote.
+        message = safe_error_text(exc, stage_for(exc))
         if session is not None:
             failed = session.model_copy(
                 update={
@@ -439,10 +468,13 @@ async def run_strategy_session(
                     "updated_at": finished_at,
                 }
             )
-            store.finalize_strategy_session(failed)
-        store.fail_strategy_lease(
-            window.from_, window.to, strategy_version, session_id, finished_at, message
-        )
+            # One transaction: the session goes failed and the lease is released
+            # for retry together, or neither does.
+            store.commit_strategy_session(failed, None, finished_at)
+        else:
+            store.fail_strategy_lease(
+                window.from_, window.to, strategy_version, session_id, finished_at, message
+            )
         raise
 
 
@@ -593,7 +625,7 @@ async def _run_council(
 
     finished_at = datetime.now(UTC)
     brief = Brief(
-        brief_id=brief_id_for(context.period),
+        brief_id=brief_id_for(context.period, session.session_id),
         period=BriefPeriod(**{"from": context.period.from_, "to": context.period.to}),
         claims_referenced=[
             ClaimReference(claim_id=claim_id, version=version)
@@ -606,14 +638,6 @@ async def _run_council(
         strategy_session_id=session.session_id,
         strategy_card_ids=[card.card_id for card in passed],
     )
-    if not store.create_brief_once(brief):
-        existing = store.get_brief(brief.brief_id)
-        owner = existing.strategy_session_id if existing else "an earlier run"
-        raise RuntimeError(
-            f"brief {brief.brief_id} already exists (session {owner}); briefs are "
-            "write-once. Resolve the earlier session before rerunning this period."
-        )
-
     completed = session.model_copy(
         update={
             "cards": cards,
@@ -635,14 +659,10 @@ async def _run_council(
             "updated_at": finished_at,
         }
     )
-    store.finalize_strategy_session(completed)
-    store.complete_strategy_lease(
-        context.period.from_,
-        context.period.to,
-        session.strategy_version,
-        session.session_id,
-        finished_at,
-    )
+    # Brief, terminal session state, and lease completion land as ONE atomic
+    # store operation.  A crash between them would otherwise leave a stored
+    # brief whose session is still running: a state that blocks every retry.
+    store.commit_strategy_session(completed, brief, finished_at)
     events.append(
         StrategyEvent(
             session_id=session.session_id,

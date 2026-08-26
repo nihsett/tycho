@@ -25,9 +25,14 @@ ObservationId = Annotated[str, StringConstraints(pattern=rf"^obs_{_ULID}$")]
 DeltaId = Annotated[str, StringConstraints(pattern=rf"^dlt_{_ULID}$")]
 ClaimId = Annotated[str, StringConstraints(pattern=rf"^clm_{_ULID}$")]
 ReceiptId = Annotated[str, StringConstraints(pattern=rf"^rcp_{_ULID}$")]
+# ``brf_2026w34`` is the weekly identity.  A strategy session appends a short
+# session discriminator (``brf_2026w34-a1b2c3d4``) so a retry covering the same
+# week cannot collide with the abandoned attempt's write-once brief.
 BriefId = Annotated[
     str,
-    StringConstraints(pattern=r"^brf_[0-9]{4}w(?:0[1-9]|[1-4][0-9]|5[0-3])$"),
+    StringConstraints(
+        pattern=r"^brf_[0-9]{4}w(?:0[1-9]|[1-4][0-9]|5[0-3])(?:-[0-9a-z]{1,12})?$"
+    ),
 ]
 
 
