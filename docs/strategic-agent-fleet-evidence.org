@@ -107,11 +107,28 @@ and =roles/telemetry.tracesWriter= — the handoff's trace-writer role, not the
 broader legacy =roles/cloudtrace.agent=, which is now in the forbidden prefix
 list alongside storage, Pub/Sub, and Memory Bank.
 
+** Atomic session start
+=begin_strategy_session= acquires the lease and creates the running session in
+ONE transaction. Acquiring the lease first and creating the session afterwards
+left a window in which a duplicate trigger saw an active lease and no readable
+session. A racing request now either wins and creates both, or loses and reads
+the winner's running session immediately.
+
+The running session starts deliberately empty: no manifest, no metrics
+evidence, zero counters. It exists so the lease and a readable session appear
+together, before any context work or agent call. The final context lands in the
+completed document at commit time.
+
 ** Atomic persistence
 Saving the brief, moving the session to its terminal state, and releasing the
 lease are ONE store operation: =commit_strategy_session=, implemented with the
 same signature as a single SQLite =BEGIN IMMEDIATE= transaction and a single
 Firestore transaction.
+
+The commit also requires lease ownership: the lease must exist, be =active=,
+and name the committing session. SQLite checks the =UPDATE= row count; Firestore
+validates the lease before any write. Without this, a session whose lease
+expired and was reclaimed by a newer attempt could still publish its brief.
 
 This closes the crash window that would otherwise leave a stored brief whose
 session is still =running= — a state that permanently blocks every retry for
@@ -122,6 +139,12 @@ period alone is not a safe key, because a retry after a failed session covers
 the same week and would collide with the abandoned attempt's write-once brief.
 =BriefId= accepts the plain weekly form and an optional session discriminator,
 so analyst-era briefs still validate.
+
+** Durable context failures
+The placeholder session is created before the context is built, so a context
+failure is recorded rather than lost. The failure path marks the placeholder
+session failed and releases the lease atomically, with sanitized error metadata
+and an empty manifest. The period stays retryable and the attempt stays visible.
 
 ** Error redaction
 =strategy_agent/errors.py= is the single sanitizer. It reduces any exception to
@@ -224,9 +247,21 @@ Review-blocker coverage added after the first draft:
 | Delta entity/source must match the claim | =::test_a_premise_whose_delta_entity_differs_is_rejected=, =::test_a_premise_whose_delta_source_differs_is_rejected= |
 | the context builder applies the same rule | =::test_the_context_builder_applies_the_same_evidence_rule= |
 
+Final persistence fixes:
+
+| Issue | Where |
+|-------+-------|
+| no lease/session race | =test_strategy_recovery.py::test_a_duplicate_trigger_between_lease_and_session_reads_the_running_session= (a real second trigger on its own connection and event loop, fired after acquisition and before context or any agent) |
+| begin is atomic both ways | =::test_begin_is_atomic_no_lease_without_a_session=, =::test_begin_rolls_back_the_lease_when_the_session_insert_fails=, =::test_begin_refuses_a_non_running_session= |
+| commit requires an existing lease | =::test_commit_refuses_when_the_lease_is_missing= |
+| commit requires lease ownership | =::test_commit_refuses_a_lease_owned_by_another_session= |
+| commit requires an active lease | =::test_commit_refuses_an_already_released_lease= |
+| context failure stays visible and retryable | =::test_a_context_failure_marks_the_placeholder_failed_and_retryable=, =test_strategy_local_run.py::test_input_budget_failure_happens_before_any_agent_call= |
+| lease + session creation is a parity method | =test_strategy_persistence.py::test_local_and_cloud_strategy_surfaces_match= |
+
 * Repository gate
-=just check= (lock check, Ruff, compileall, pytest): *239 passed*, up from the
-92-test baseline. 147 of those are new strategy tests.
+=just check= (lock check, Ruff, compileall, pytest): *249 passed*, up from the
+92-test baseline. 157 of those are new strategy tests.
 
 * just recipes added
 | Recipe | Effect |

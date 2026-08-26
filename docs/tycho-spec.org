@@ -487,11 +487,23 @@ evidence gates live. The wrapper parses only a bounded request, builds its
 backend per request, calls the governed workflow, and returns only IDs, state,
 and counts.
 
-The brief, the session's terminal state, and the lease release are one atomic
-store operation. A crash cannot leave a stored brief whose session is still
-running, which is the state that would permanently block retries for that
-period. Brief IDs carry a per-session discriminator so a retry over the same
-week cannot collide with an abandoned attempt's write-once brief.
+Lease acquisition and creation of the running session are one atomic store
+operation, so a duplicate trigger can never see an active lease with no readable
+session: it either wins and creates both, or loses and reads the winner's
+running session. The running session starts with an empty manifest and zero
+metrics; the completed document carries the final context.
+
+The brief, the session's terminal state, and the lease release are likewise one
+atomic operation, and that commit requires the committing session to still hold
+an =active= lease it owns. A crash cannot leave a stored brief whose session is
+still running, which is the state that would permanently block retries for that
+period, and a session whose lease was reclaimed cannot publish. Brief IDs carry
+a per-session discriminator so a retry over the same week cannot collide with an
+abandoned attempt's write-once brief.
+
+Because the placeholder session is durable before the context is built, a
+context failure is recorded as a failed session with sanitized metadata rather
+than vanishing.
 
 ** What the session may read
 Governed memory only: active non-operational claims whose evidence resolves

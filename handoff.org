@@ -270,7 +270,7 @@ model exposed the design bugs; the final system represents contradictory signals
 honestly instead of forcing demotion.
 
 * Tests
-Last result: =239 passed= (only harmless ADK/dependency deprecation warnings).
+Last result: =249 passed= (only harmless ADK/dependency deprecation warnings).
 
 The cloud boundary has regression coverage for encoding nested delta JSON fields
 for BigQuery streaming inserts.
@@ -294,7 +294,7 @@ Key test files:
   read-only candidate audit: strict row loading, comparison/observation/
   chronology/hash checks, grounding rerun, noise-pair classification,
   advisory classes, claim resolution, redaction, and exit codes.
-- =tests/test_strategy_*.py= (147 tests) — the strategy council: strict schemas,
+- =tests/test_strategy_*.py= (157 tests) — the strategy council: strict schemas,
   deterministic evidence rules, the bounded context builder, citation markers,
   the council workflow, leases and write-once persistence, local/cloud parity,
   and the agent/permission boundaries. All synthetic and offline; no model call.

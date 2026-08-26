@@ -85,8 +85,8 @@ writes nothing back into them:
                            ├──► strategy dispatcher (bounded period + request ID;
  dashboard "Run Strategy" ─┘      no prompt text is accepted)
                                         ▼
-                        transactional lease on (period, strategy_version)
-                          duplicate trigger ──► return existing session, no model call
+              atomic: lease on (period, strategy_version) + running session
+                          duplicate trigger ──► read the running session, no model call
                                         ▼
                         bounded context builder (Python, deterministic)
                           active claims on canonical Delta@2 only
@@ -111,7 +111,8 @@ writes nothing back into them:
                         citation validation → dashboard links
                           unpinned / malformed / URL ──► the run fails
                                         ▼
-                   write-once strategy session + brief → Firestore / SQLite
+        atomic: brief + terminal session + lease release (ownership checked)
+                              → Firestore / SQLite
 ```
 
 ## Components
@@ -138,7 +139,7 @@ writes nothing back into them:
 | Strategy evidence rules | Python | `pipeline/strategy_evidence.py` | pinning, canonical-v2, entity/source-family diversity, staleness, confidence ceiling, conclusion-language policy |
 | Strategy context builder | Python | `pipeline/strategy_context.py` | deterministic bounded manifest and metrics; fails durably over budget |
 | Strategy sessions | data | Firestore / SQLite | write-once audit of cards, challenges, manifest hash, safe metrics; brief + terminal state + lease release commit atomically |
-| Strategy leases | data | Firestore / SQLite | transactional `(period_from, period_to, strategy_version)` identity; duplicate triggers skip the model |
+| Strategy leases | data | Firestore / SQLite | transactional `(period_from, period_to, strategy_version)` identity; the lease and the running session are created together, and the final commit requires the session to still own an active lease |
 | Q&A agent | ADK agent | Cloud Run | claims-only answers with evidence citations; refuses when no claim covers the question |
 | Delivery receipts | data | Firestore | (claim_id, version) delivered once per context; new version re-delivers |
 | Config | YAML in repo | — | canonical entity keys, sources, ontology, staleness clocks, schedules |
