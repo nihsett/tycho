@@ -1,5 +1,5 @@
 {
-  "card_id": "stc_01M0YVWY19D54Y166H78VH8BZW",
+  "card_id": "stc_01M0YWM5D6WPJQV5FHZ3RKPF6H",
   "statement": "Both Claude Code and Codex now ship workspace execution isolation as a standard control rather than an advanced option.",
   "rationale": "Two independent vendors converged on comparable isolation defaults within one week, which changes what a buyer treats as table stakes when evaluating a coding agent.",
   "inference_kind": "present_state",

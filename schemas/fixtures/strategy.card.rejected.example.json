@@ -1,5 +1,5 @@
 {
-  "card_id": "stc_01M0YVWY19R6NJ844W4RQSHFYN",
+  "card_id": "stc_01M0YWM5D7GCFHFCX5G7BYXATS",
   "statement": "Claude Code hardened its execution model because rivals were outpacing it on enterprise security.",
   "rationale": "The release notes and the changelog both describe the same default sandbox, which shows the change was driven by competitive pressure.",
   "inference_kind": "present_state",

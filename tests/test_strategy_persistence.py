@@ -44,6 +44,16 @@ def test_lease_identity_is_the_period_and_strategy_version():
     assert not strategy_lease_is_active(None, NOW)
 
 
+def test_begin_creates_the_lease_and_a_readable_session_together(tmp_path):
+    """The two writes a duplicate trigger depends on land in one transaction."""
+    market = build_synthetic_market(NOW)
+    with seeded_store(tmp_path, market) as store:
+        before = len(store.strategy_sessions())
+        result = run(store, scripted_session(market))
+        assert len(store.strategy_sessions()) == before + 1
+        assert store.get_strategy_session(result.session.session_id) is not None
+
+
 def test_concurrent_trigger_sees_an_active_lease(tmp_path):
     with seeded_store(tmp_path, build_synthetic_market(NOW)) as store:
         first = store.acquire_strategy_lease(
@@ -155,6 +165,7 @@ def test_session_and_brief_round_trip_through_the_store(tmp_path):
 
 
 PARITY_METHODS = (
+    "begin_strategy_session",
     "commit_strategy_session",
     "list_claims",
     "list_canonical_deltas",

@@ -1,5 +1,5 @@
 {
-  "brief_id": "brf_2026w35-2ebdzgtc",
+  "brief_id": "brf_2026w35-pj0r50q0",
   "period": {
     "from": "2026-08-19T09:00:00Z",
     "to": "2026-08-26T09:00:00Z"
@@ -22,9 +22,9 @@
   },
   "rendered_md": "# Tycho strategy brief \u2014 2026-W35\n\n## What changed\n\nClaude Code made sandboxed shell execution the default [clm_100000000001Y3K3MJMKRQPV3X@v1](/claims/clm_100000000001Y3K3MJMKRQPV3X?version=1) and Codex shipped a per-workspace execution sandbox [clm_300000000001YQBZC62ZR10S57@v1](/claims/clm_300000000001YQBZC62ZR10S57?version=1).\n\n## What Tycho concludes\n\nWorkspace execution isolation is now a standard control across both monitored vendors rather than an advanced option (likely) [clm_100000000001Y3K3MJMKRQPV3X@v1](/claims/clm_100000000001Y3K3MJMKRQPV3X?version=1)[clm_300000000001YQBZC62ZR10S57@v1](/claims/clm_300000000001YQBZC62ZR10S57?version=1).\n\n## Counter-signals\n\nBoth vendors may be answering the same procurement checklist rather than each other. Tycho rejected a second conclusion this period that rested on one vendor's mirrored release text.\n\n## What would change our mind\n\nA subsequent release from either vendor returning execution isolation to an opt-in advanced setting.",
   "delivered_to": [],
-  "created_at": "2026-08-26T11:04:47.915107Z",
-  "strategy_session_id": "sts_01M0YVWY0NHTEQWY0N2EBDZGTC",
+  "created_at": "2026-08-26T11:17:29.128396Z",
+  "strategy_session_id": "sts_01M0YWM5CM6WBA1JKRPJ0R50Q0",
   "strategy_card_ids": [
-    "stc_01M0YVWY19D54Y166H78VH8BZW"
+    "stc_01M0YWM5D6WPJQV5FHZ3RKPF6H"
   ]
 }

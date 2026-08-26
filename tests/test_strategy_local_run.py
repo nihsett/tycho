@@ -80,11 +80,18 @@ def test_input_budget_failure_happens_before_any_agent_call(tmp_path, monkeypatc
                     now=NOW,
                 )
             )
-        # No agent was called, no session document was written, and the lease
-        # stays retryable rather than completed.
+        # No agent was called. The placeholder session is durably failed with
+        # sanitized metadata, so the attempt is visible and retryable.
         assert invoker.calls == []
-        assert store.strategy_sessions() == []
         assert store.briefs() == []
+        failed = store.strategy_sessions()
+        assert len(failed) == 1
+        assert failed[0].state is SessionState.FAILED
+        assert failed[0].error == (
+            "context:StrategyContextTooLarge: "
+            "bounded context exceeded its byte or token budget"
+        )
+        assert failed[0].input_manifest == []
 
         # Restore the real budget: the failed lease must still be retryable.
         monkeypatch.undo()
@@ -96,3 +103,4 @@ def test_input_budget_failure_happens_before_any_agent_call(tmp_path, monkeypatc
         )
         assert retry.session.state is SessionState.COMPLETED
         assert retry.brief is not None
+        assert len(store.strategy_sessions()) == 2

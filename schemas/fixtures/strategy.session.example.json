@@ -1,5 +1,5 @@
 {
-  "session_id": "sts_01M0YVWY0NHTEQWY0N2EBDZGTC",
+  "session_id": "sts_01M0YWM5CM6WBA1JKRPJ0R50Q0",
   "strategy_version": "strategy-council@1",
   "question": "What materially changed across the monitored coding-agent market, why does it matter, and what evidence could change this conclusion?",
   "period": {
@@ -144,7 +144,7 @@
   ],
   "cards": [
     {
-      "card_id": "stc_01M0YVWY19D54Y166H78VH8BZW",
+      "card_id": "stc_01M0YWM5D6WPJQV5FHZ3RKPF6H",
       "statement": "Both Claude Code and Codex now ship workspace execution isolation as a standard control rather than an advanced option.",
       "rationale": "Two independent vendors converged on comparable isolation defaults within one week, which changes what a buyer treats as table stakes when evaluating a coding agent.",
       "inference_kind": "present_state",
@@ -183,7 +183,7 @@
       "rejection_reasons": []
     },
     {
-      "card_id": "stc_01M0YVWY19R6NJ844W4RQSHFYN",
+      "card_id": "stc_01M0YWM5D7GCFHFCX5G7BYXATS",
       "statement": "Claude Code hardened its execution model because rivals were outpacing it on enterprise security.",
       "rationale": "The release notes and the changelog both describe the same default sandbox, which shows the change was driven by competitive pressure.",
       "inference_kind": "present_state",
@@ -227,7 +227,7 @@
   ],
   "challenges": [
     {
-      "card_id": "stc_01M0YVWY19D54Y166H78VH8BZW",
+      "card_id": "stc_01M0YWM5D6WPJQV5FHZ3RKPF6H",
       "verdict": "pass",
       "unsupported_premise_claim_ids": [],
       "policy_violations": [],
@@ -257,12 +257,12 @@
     "latency_ms": 3
   },
   "run_ids": [
-    "sts_01M0YVWY0NHTEQWY0N2EBDZGTC:strategist",
-    "sts_01M0YVWY0NHTEQWY0N2EBDZGTC:challenger:0",
-    "sts_01M0YVWY0NHTEQWY0N2EBDZGTC:brief_writer"
+    "sts_01M0YWM5CM6WBA1JKRPJ0R50Q0:strategist",
+    "sts_01M0YWM5CM6WBA1JKRPJ0R50Q0:challenger:0",
+    "sts_01M0YWM5CM6WBA1JKRPJ0R50Q0:brief_writer"
   ],
-  "brief_id": "brf_2026w35-2ebdzgtc",
+  "brief_id": "brf_2026w35-pj0r50q0",
   "error": null,
   "created_at": "2026-08-26T09:00:00Z",
-  "updated_at": "2026-08-26T11:04:47.915107Z"
+  "updated_at": "2026-08-26T11:17:29.128396Z"
 }
