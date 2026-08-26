@@ -48,6 +48,11 @@ replay for demos.
 | `just local-web` | One local changelog acquisition cycle |
 | `just local-stats` | Print local SQLite store counts |
 | `just calibrate` | Run the Gemini analyst calibration |
+| `just strategy-session` | One synthetic, offline strategy-council session |
+| `just strategy-brief` | The same, plus the rendered brief markdown |
+| `just strategy-test` | Run only the strategy test suites |
+| `just strategy-stats` | Sessions and briefs in the disposable strategy store |
+| `just strategy-clean` | Delete the disposable strategy store |
 | `just cutover-check` | Read-only BigQuery cutover inspection |
 | `just audit` | Read-only audit of the strict Delta@2 candidate table |
 | `just cutover-apply` | **Production** table cutover (asks for confirmation) |
@@ -66,6 +71,33 @@ use SQLite/Firestore generation leases and retry failed pairs before fetching
 new content. The semantic differ uses Vertex/ADC, never an AI Studio API key.
 The retired deterministic differ remains only for tests and audit compatibility;
 it is not a production fallback or rollback mode.
+
+## Run the strategy council locally
+
+Three named ADK agents — `tycho_strategist`, `tycho_challenger`, and
+`tycho_brief_writer` — turn governed claims into at most three present-state
+market conclusions, and Python decides which of them survive.
+
+```bash
+just strategy-session   # one session end to end, one passed and one rejected card
+just strategy-brief     # the same, plus the rendered brief
+just strategy-stats     # what landed in the disposable store
+just strategy-clean     # throw it away
+```
+
+These recipes are synthetic and offline: no Gemini call, no Google Cloud access,
+and a disposable store that refuses to be `data/tycho.sqlite3`. The report lands
+in `data/strategy_local_session.json`.
+
+What the council will not do: search the web, read raw snapshots, mutate a
+claim, recommend an action, or infer intent, causation, market leadership, or
+the future. A conclusion needs two distinct entities and two independent source
+families, where one vendor's mirrored release channels count as one family.
+Confidence never exceeds the weakest premise and is never `confirmed`. A
+Challenger `pass` is quality control, not evidence: it can only reject.
+
+Production deployment of the Strategy Council Runtime is still gated on the
+BigQuery table swap — see `docs/strategic-agent-fleet-handoff.org`.
 
 ## Calibrate the Gemini analyst
 
@@ -182,4 +214,6 @@ bq query --use_legacy_sql=false \
 - [`docs/tycho-spec.org`](docs/tycho-spec.org) — the product/data contract
 - [`docs/architecture.md`](docs/architecture.md) — how it runs
 - [`handoff.org`](handoff.org) — current implementation and operational state
+- [`docs/strategic-agent-fleet-handoff.org`](docs/strategic-agent-fleet-handoff.org) — the strategy council brief and its split start gate
+- [`docs/strategic-agent-fleet-evidence.org`](docs/strategic-agent-fleet-evidence.org) — what the local strategy implementation actually did
 - [`docs/semantic-delta-deployment-evidence.org`](docs/semantic-delta-deployment-evidence.org)

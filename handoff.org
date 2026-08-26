@@ -96,6 +96,11 @@ just check        # lock check, lint, compile, pytest
 just local-github # uv run python -m pipeline.run_local --source github_releases
 just local-web    # uv run python -m pipeline.run_local --source website_changelog
 just local-stats  # local SQLite store counts
+just strategy-session # one synthetic, offline strategy-council session
+just strategy-brief   # the same, plus the rendered brief markdown
+just strategy-test    # only the strategy suites
+just strategy-stats   # sessions/briefs in the disposable strategy store
+just strategy-clean   # delete the disposable strategy store
 just audit        # read-only strict Delta@2 candidate audit
 just cutover-check
 tail -f data/fleet.log
@@ -265,7 +270,7 @@ model exposed the design bugs; the final system represents contradictory signals
 honestly instead of forcing demotion.
 
 * Tests
-Last result: =92 passed= (only harmless ADK/dependency deprecation warnings).
+Last result: =219 passed= (only harmless ADK/dependency deprecation warnings).
 
 The cloud boundary has regression coverage for encoding nested delta JSON fields
 for BigQuery streaming inserts.
@@ -289,6 +294,10 @@ Key test files:
   read-only candidate audit: strict row loading, comparison/observation/
   chronology/hash checks, grounding rerun, noise-pair classification,
   advisory classes, claim resolution, redaction, and exit codes.
+- =tests/test_strategy_*.py= (127 tests) — the strategy council: strict schemas,
+  deterministic evidence rules, the bounded context builder, citation markers,
+  the council workflow, leases and write-once persistence, local/cloud parity,
+  and the agent/permission boundaries. All synthetic and offline; no model call.
 
 * Cloud status
 Project: =gen-lang-client-0110801105= (number =548847028907=).
@@ -392,8 +401,14 @@ processor; direct trace inspection found no unsafe fields.
 * Recommended next session
 The only immediate task is to finish the strict BigQuery table swap after the
 post-streaming rename window. Read the =Gemini-only repair gate= below and
-=docs/gemini-delta-backlog-repair-handoff.org= completely. Do not begin the
-strategic-agent fleet before the swap and all read-backs pass.
+=docs/gemini-delta-backlog-repair-handoff.org= completely.
+
+The strategy council's *local* implementation is already done and is described
+under =Strategy council — local implementation= below; the user authorized it
+ahead of the rename because the candidate audit passed. What is still blocked is
+production: do not deploy the Strategy Council Runtime, create its Scheduler job
+or dispatcher, or run a strategy session over production claims before the swap
+and all read-backs pass.
 
 After approximately =2026-08-26T12:28Z=:
 1. Recheck that =deltas= has 96 rows, =deltas_v2_candidate= has 50 strict v2
@@ -418,7 +433,10 @@ After approximately =2026-08-26T12:28Z=:
    active claims resolve only to canonical v2 evidence.
 4. Verify there was no backfill Pub/Sub, Runtime, or alert traffic, inspect
    redacted telemetry, and update the repair evidence.
-5. Only then hand Luna =docs/strategic-agent-fleet-handoff.org=.
+5. Only then open the production half of
+   =docs/strategic-agent-fleet-handoff.org=: deploy the =Tycho Strategy Council=
+   Runtime (min 0 / max 1) with its own private dispatcher and Scheduler job,
+   leaving =tycho-analyst-push= untouched, and run one production session.
 
 The first natural meaningful =delta@2= Runtime validation remains a separate
 pending gate; never manufacture production evidence. Rotate =GOOGLE_API_KEY=
@@ -509,6 +527,47 @@ Readback of =tycho.deltas_v2_candidate= on 2026-08-26 (exit code 0):
 - 13 advisories, all =cross_source_mirrored_evidence= for =claude_code= between
   =github_releases= and =website_changelog=; zero
   =evidence_after_present_in_obs_before=.
+
+* Strategy council — local implementation (2026-08-26)
+Tycho's fourth, fifth, and sixth agents exist locally: =tycho_strategist=,
+=tycho_challenger=, and =tycho_brief_writer=, orchestrated by
+=strategy_agent/council.py= around Python gates that a model cannot route past.
+
+Built under the *split* start gate in =docs/strategic-agent-fleet-handoff.org=:
+the local gate is open because the read-only candidate audit passed; the
+production gate stays closed until the physical BigQuery rename and the final
+post-swap read-backs. This work touched no production GCP resource, made no
+Gemini call, deployed no Agent Runtime, started no dashboard, and did not modify
+=data/tycho.sqlite3= or the main worktree.
+
+New modules:
+- =schemas/strategy.py= — strict cards, premises, challenges, sessions, and the
+  model-facing draft schemas.
+- =pipeline/strategy_evidence.py= — the ten evidence rules, source-family
+  normalization, and the conclusion-language policy.
+- =pipeline/strategy_context.py= — the deterministic bounded manifest, metrics
+  carrying their contributing Delta IDs, and the byte/token budget.
+- =pipeline/strategy_lease.py= plus strategy tables in both backends —
+  =(period_from, period_to, strategy_version)= lease identity, write-once
+  sessions, write-once briefs.
+- =strategy_agent/= — the three agents, the council workflow, citation
+  validation, safe events, the bounded request contract, and synthetic fixtures.
+- =pipeline/run_strategy_local.py= — the synthetic offline session runner.
+
+Synthetic verification (=just strategy-session=): session =completed=, 2 cards
+proposed, 1 passed, 1 rejected, brief =brf_2026w35= pinning exactly the passed
+card's two premise claim versions. The rejected card failed deterministic
+validation before the Challenger saw it — one entity, one source family after
+mirrored-evidence collapse, plus unsupported causation and leadership language.
+
+Evidence: =docs/strategic-agent-fleet-evidence.org= and
+=data/strategy_local_session.json= (gitignored; regenerate with
+=just strategy-session=).
+
+Next session, in order: finish the BigQuery rename, run the post-swap
+invariants and route read-backs, then deploy the =Tycho Strategy Council=
+Runtime and run one production session. Do not manufacture a conclusion when
+production evidence is insufficient.
 
 * Gemini-only repair gate (2026-08-26)
 The four pre-swap gates are complete, but final table cutover is deliberately
