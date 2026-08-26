@@ -155,6 +155,7 @@ def test_session_and_brief_round_trip_through_the_store(tmp_path):
 
 
 PARITY_METHODS = (
+    "commit_strategy_session",
     "list_claims",
     "list_canonical_deltas",
     "get_claim",

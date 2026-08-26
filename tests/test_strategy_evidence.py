@@ -24,7 +24,13 @@ from schemas.claim import (
     InferenceKind,
     Severity,
 )
-from schemas.delta import ChangeCategory, ChangeScope, Delta, DeltaSchemaVersion
+from schemas.delta import (
+    ChangeCategory,
+    ChangeScope,
+    Delta,
+    DeltaSchemaVersion,
+    Triage,
+)
 from schemas.strategy import StrategyCardDraft, StrategyConfidence
 from strategy_agent.synthetic import (
     build_synthetic_market,
@@ -126,6 +132,99 @@ def test_premise_citing_archived_legacy_evidence_is_rejected(tmp_path):
         )
         assert not result.passed
         assert any("unresolvable evidence" in reason for reason in result.violations)
+
+
+def test_a_noise_delta_is_not_a_premise(tmp_path):
+    """Noise records that nothing durable changed; it is audit, not evidence."""
+    market = build_synthetic_market(NOW)
+    claude, _, codex, _ = market.claims
+    noise = market.deltas[2].model_copy(
+        update={"triage": Triage.NOISE, "changes": [], "routed_to": []}
+    )
+    with seeded_store(tmp_path, market) as store:
+        store.connection.execute(
+            "UPDATE deltas SET document = ?, triage = 'noise' WHERE delta_id = ?",
+            (noise.model_dump_json(), noise.delta_id),
+        )
+        store.connection.commit()
+        result = validated(
+            store, draft(market, premises=[(claude.claim_id, 1), (codex.claim_id, 1)])
+        )
+        assert not result.passed
+        assert any("cites noise evidence" in reason for reason in result.violations)
+
+
+def test_a_premise_whose_delta_entity_differs_is_rejected(tmp_path):
+    market = build_synthetic_market(NOW)
+    claude, _, codex, gemini = market.claims
+    with seeded_store(tmp_path, market) as store:
+        # Repoint the Codex claim at a Gemini CLI Delta.
+        store.update_claim(
+            codex.claim_id,
+            {
+                "evidence": [
+                    {
+                        "delta_id": market.deltas[3].delta_id,
+                        "source": market.deltas[3].source,
+                        "note": "Mismatched provenance.",
+                    }
+                ]
+            },
+        )
+        result = validated(
+            store, draft(market, premises=[(claude.claim_id, 1), (codex.claim_id, 1)])
+        )
+        assert not result.passed
+        assert any("different entity (gemini_cli)" in r for r in result.violations)
+
+
+def test_a_premise_whose_delta_source_differs_is_rejected(tmp_path):
+    market = build_synthetic_market(NOW)
+    claude, _, codex, _ = market.claims
+    with seeded_store(tmp_path, market) as store:
+        store.update_claim(
+            codex.claim_id,
+            {
+                "evidence": [
+                    {
+                        "delta_id": market.deltas[2].delta_id,
+                        "source": "github_releases",
+                        "note": "Source recorded on the claim does not match the Delta.",
+                    }
+                ]
+            },
+        )
+        result = validated(
+            store, draft(market, premises=[(claude.claim_id, 1), (codex.claim_id, 1)])
+        )
+        assert not result.passed
+        assert any("does not match the recorded source" in r for r in result.violations)
+
+
+def test_the_context_builder_applies_the_same_evidence_rule(tmp_path):
+    """A claim a card would be rejected for must never enter the manifest."""
+    from pipeline.strategy_context import build_strategy_context, default_period
+
+    market = build_synthetic_market(NOW)
+    _, _, codex, _ = market.claims
+    with seeded_store(tmp_path, market) as store:
+        store.update_claim(
+            codex.claim_id,
+            {
+                "evidence": [
+                    {
+                        "delta_id": market.deltas[3].delta_id,
+                        "source": market.deltas[3].source,
+                        "note": "Mismatched provenance.",
+                    }
+                ]
+            },
+        )
+        context = build_strategy_context(
+            store, config(), period=default_period(NOW, 7), now=NOW
+        )
+        assert codex.claim_id in context.excluded_claim_ids
+        assert codex.claim_id not in {entry.claim_id for entry in context.manifest}
 
 
 def test_mirrored_release_text_is_one_source_family(tmp_path):
@@ -334,9 +433,22 @@ def test_staleness_threshold_uses_tycho_yaml_budgets():
     assert staleness_threshold(settings, "gtm") == settings.staleness_days["default"]
 
 
-def speculative_inference(market) -> Claim:
+def codex_second_source() -> Delta:
+    """A second Codex signal, same entity, different channel."""
+    return make_delta(
+        seed=778,
+        entity="codex",
+        source="github_releases",
+        computed_at=NOW,
+        statement="Codex documented the sandbox opt-out flag in its release notes.",
+        quote="Use --no-sandbox to opt out of the workspace sandbox.",
+    )
+
+
+def speculative_inference(market, second: Delta) -> Claim:
     """A speculative present-state inference over two distinct sources."""
-    codex_delta, gemini_delta = market.deltas[2], market.deltas[3]
+    codex_delta = market.deltas[2]
+    gemini_delta = second
     return Claim(
         claim_id=synthetic_id("clm", 777),
         entity="codex",
@@ -370,12 +482,14 @@ def speculative_inference(market) -> Claim:
 def test_confidence_never_exceeds_the_weakest_premise(tmp_path):
     market = build_synthetic_market(NOW)
     claude, _, codex, _ = market.claims
-    weak = speculative_inference(market)
+    second = codex_second_source()
+    weak = speculative_inference(market, second)
 
     assert confidence_ceiling([claude, weak]) is StrategyConfidence.SPECULATIVE
     assert confidence_ceiling([claude, codex]) is StrategyConfidence.LIKELY
 
     with seeded_store(tmp_path, market) as store:
+        store.insert_delta(second, enqueue=False)
         store.create_claim(weak)
         likely = validated(
             store, draft(market, premises=[(claude.claim_id, 1), (weak.claim_id, 1)])

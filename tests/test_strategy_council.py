@@ -290,8 +290,15 @@ def test_session_records_the_manifest_hash_and_agent_versions(tmp_path):
         assert session.run_ids
 
 
-def test_brief_id_tracks_the_period(tmp_path):
+def test_brief_id_tracks_the_period_and_stays_unique_per_session(tmp_path):
     period = default_period(NOW, 7)
     assert brief_id_for(period) == "brf_2026w35"
     earlier = default_period(NOW - timedelta(days=7), 7)
     assert brief_id_for(earlier) == "brf_2026w34"
+
+    # Two attempts over the same week must not collide on the write-once brief.
+    first = brief_id_for(period, "sts_01M0YT0HBMPYQRZG1FJ1HJEDKJ")
+    second = brief_id_for(period, "sts_01M0YTEATHCED4T3JJ8FEGHQ8Q")
+    assert first.startswith("brf_2026w35-")
+    assert second.startswith("brf_2026w35-")
+    assert first != second

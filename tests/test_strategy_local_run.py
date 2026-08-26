@@ -39,7 +39,7 @@ def test_local_run_reports_one_passed_and_one_rejected_card(tmp_path):
         "tycho_challenger",
         "tycho_brief_writer",
     ]
-    assert summary["brief"]["brief_id"] == "brf_2026w35"
+    assert summary["brief"]["brief_id"].startswith("brf_2026w35-")
     assert len(summary["brief"]["strategy_card_ids"]) == 1
     assert summary["stats"]["strategy_sessions"] == 1
     assert summary["stats"]["briefs"] == 1
