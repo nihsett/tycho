@@ -1,0 +1,536 @@
+#+TITLE: Tycho Session Handoff
+#+DATE: 2026-08-26
+#+STARTUP: overview
+
+* Read first
+A fresh session MUST read these files completely, in this order:
+1. =docs/tycho-spec.org= — hard product/data contract.
+2. =docs/architecture.md= — user/Claude architecture and runtime design.
+3. This file — current implementation and operational state.
+
+Working directory:
+=/home/nihar/Work/ATA-Hackathon/tycho=
+
+This directory is a Git repository on branch =main=, pushed to the private
+GitHub repository =nihsett/tycho=. =just= is the command interface; see the
+=Justfile= and =README.md=. GitHub Actions runs only =just ci= (lock check,
+lint, compile, pytest) with no GCP access and no repository secrets.
+
+A second worktree for the strategy work lives at
+=/home/nihar/Work/ATA-Hackathon/tycho-strategy= on branch
+=feat/strategy-council=.
+
+* Current headline
+Tycho runs locally and in GCP for four coding-agent entities. Acquisition and
+hash gating remain deterministic; changed clean pairs use the grounded Gemini
+3.7 semantic differ. Production acquisition is now in =semantic= authority
+mode. Agent Runtime is the governed claim writer. Semantic attempts use durable
+generation leases and redacted metadata. The historical backlog repair has
+validated and inserted 46 Gemini =delta@2= replacements without publication.
+Legacy-backed claims have been governed and corrected, but the strict canonical
+BigQuery table swap is intentionally pending until BigQuery's post-streaming
+rename window clears.
+
+Current local persistent store (2026-08-25):
+- observations: 52
+- deltas: 26
+- claims: 18
+- receipts: 0
+- analyst_runs: 18
+- alerts: 0
+- outbox_pending: 0
+
+The local store is backfilled into GCP. Manual and scheduled cloud acquisitions
+have completed successfully. The first scheduled run produced eight observations,
+six deltas, five live Gemini analyst runs, and four new claims.
+
+* Entities and real sources
+Configured in =tycho.yaml=.
+
+| Entity | GitHub releases | Official changelog |
+|---+---+---|
+| Claude Code | =anthropics/claude-code= | =https://code.claude.com/docs/en/changelog.md= |
+| OpenAI Codex | =openai/codex= | =https://developers.openai.com/codex/changelog/= |
+| Gemini CLI | =google-gemini/gemini-cli= | =https://geminicli.com/docs/changelogs/= |
+| Pi from pi.dev | =earendil-works/pi= | =https://pi.dev/news/releases?page=1= |
+
+* Persistent local runtime
+** Storage
+- SQLite: =data/tycho.sqlite3=
+- Write-once payloads: =data/raw/=
+- Cron output: =data/fleet.log=
+- Calibration reports: =data/calibration/=
+- =data/= is gitignored.
+
+=pipeline/local_backend.py= implements:
+- Immutable observations and deltas.
+- Versioned claims and receipts.
+- Durable delta analyst outbox.
+- Analyst-run history.
+- Local alert events.
+- Active inbound-dispute lookup (the disputed badge is derived, not stored).
+
+A meaningful delta is inserted with a pending outbox row. Delivery is idempotent;
+a crash after claim creation but before outbox completion safely replays.
+
+** Cron
+Cron is active. Host timezone is =Asia/Kolkata=.
+
+#+begin_src cron
+# GitHub releases: 02:00 UTC = 07:30 Asia/Kolkata
+30 7 * * * cd '/home/nihar/Work/ATA-Hackathon/tycho' && '/home/nihar/.local/share/mise/installs/uv/latest/uv-x86_64-unknown-linux-musl/uv' run python -m pipeline.run_local --source github_releases >> '/home/nihar/Work/ATA-Hackathon/tycho/data/fleet.log' 2>&1
+
+# Official changelogs: 04:00 UTC = 09:30 Asia/Kolkata
+30 9 * * * cd '/home/nihar/Work/ATA-Hackathon/tycho' && '/home/nihar/.local/share/mise/installs/uv/latest/uv-x86_64-unknown-linux-musl/uv' run python -m pipeline.run_local --source website_changelog >> '/home/nihar/Work/ATA-Hackathon/tycho/data/fleet.log' 2>&1
+#+end_src
+
+Cron only runs while this machine is on. The runner has a file lock, so overlapping
+cycles cannot corrupt the store.
+
+** Useful commands
+Prefer =just=; the raw equivalents below it are for troubleshooting only.
+#+begin_src bash
+just              # list every recipe
+just setup        # uv sync --python 3.13
+just check        # lock check, lint, compile, pytest
+just local-github # uv run python -m pipeline.run_local --source github_releases
+just local-web    # uv run python -m pipeline.run_local --source website_changelog
+just local-stats  # local SQLite store counts
+just audit        # read-only strict Delta@2 candidate audit
+just cutover-check
+tail -f data/fleet.log
+crontab -l
+#+end_src
+
+Inspect counts without relying on a sqlite CLI:
+#+begin_src bash
+uv run python - <<'PY'
+from pathlib import Path
+from pipeline.local_backend import LocalBackend, LocalSettings
+from schemas.config import load_config
+with LocalBackend(load_config('tycho.yaml'), LocalSettings(Path('data').resolve())) as store:
+    print(store.stats())
+PY
+#+end_src
+
+* Implemented pipeline, in order
+1. =pipeline/run_local.py= loads config and runs source watchers.
+2. =adapters/github.py= fetches/canonicalizes official GitHub Releases JSON.
+3. =adapters/webpage.py= deterministically extracts stable heading sections from
+   Markdown/HTML. It strips scripts/nav/header/footer; no LLM parses pages.
+4. =pipeline/quarantine.py= blocks explicit LLM-directed instructions before any
+   analyst context.
+5. =pipeline/acquire.py= and =pipeline/acquire_webpage.py= write payload and
+   immutable observation.
+6. Same semantic hash -> bump relevant claim verification clocks and stop.
+7. =pipeline/differ.py= preserves normalized ={path,before,after}= changes only
+   for tests and audit decoding; cloud startup rejects legacy/shadow modes.
+8. =pipeline/semantic_differ.py= builds complete bounded observation pairs,
+   calls Gemini 3.7, and validates exact evidence/routing/policy in Python.
+9. Valid semantic noise/meaningful rows append to the canonical SQLite/BigQuery
+   Delta store; only meaningful rows enter the outbox/Pub/Sub.
+10. =pipeline/gemini_analyst.py= validates bounded Gemini tool actions.
+11. Local mode records Gemini shadow results before the stub writes the claim;
+    Cloud Run live mode writes through the same lifecycle tools.
+12. Cloud Run's live path now has a transactional Firestore/SQLite analyst lease
+    keyed by (delta_id, mode, analyst_version), preventing concurrent duplicate
+    model calls and allowing failed/expired attempts to retry.
+13. Shadow Agent Runtime receives only delta_id through a separate authenticated
+    dispatcher, constructs CloudBackend per request, and calls the existing
+    run_analyst path without an outer model.
+14. Outbox marks published. Local shadow failure never blocks local authority;
+    cloud Pub/Sub retries failed live requests.
+
+Cloud equivalents are in =pipeline/cloud.py=, =infra/bootstrap.py=, and
+=infra/deploy.py=. Cloud analyst runs and lifecycle results are recorded in
+Firestore =analyst_runs= and =alerts= collections.
+
+* Schemas and lifecycle
+Strict Pydantic v2 models live in =schemas/=. All fixture and lifecycle tests pass.
+
+Important final claim semantics:
+- Fact: entity-primary evidence, confirmed.
+- Normal inference: >=2 distinct sources, likely or speculative.
+- Operational: =sources/<source>=.
+- =inference_kind= is required on inferences:
+  - =present_state=
+  - =intent_or_future=
+- Tool layer clamps =intent_or_future= confidence to speculative.
+- =disputes= optionally links a speculative inference to an established claim.
+- A one-source inference is valid if and only if =disputes= is set.
+- Dispute evidence is exactly the current conflicting signal; counter-evidence is
+  NOT dishonestly listed as support.
+- A dispute inherits target scope/severity and leaves the target active.
+- speculative+critical claim creation emits an alert.
+- Primary-source evidence supersedes/resolves a dispute; the target's badge clears
+  because no active inbound =disputes= link remains.
+- Unsafe model demotion attempts still hit the original code-level demotion guard.
+
+Lifecycle enforcement is in =pipeline/claims.py= and
+=pipeline/gemini_analyst.py=, not left to prompts.
+
+* Gemini ADK analyst
+- Package: =google-adk 2.7.1=.
+- Default model: =gemini-3.5-flash-lite=.
+- Override: =TYCHO_ANALYST_MODEL=.
+- Analyst version: =gemini-analyst@1=.
+- Local fleet mode: =TYCHO_ANALYST_MODE=shadow=.
+- Cloud Run mode: =TYCHO_ANALYST_MODE=live= with Vertex/ADC authentication.
+- Exactly five callable model tools:
+  - =create_claim=
+  - =supersede_claim=
+  - =adjust_confidence=
+  - =bump_verified=
+  - =no_action=
+- =flag_disputed= is deliberately NOT a model tool. It is code-level enforcement.
+
+Input envelope contains only:
+- Full normalized delta.
+- Active claims in routed scopes.
+- Entity context.
+- Relevant market claims.
+
+Raw content is never passed to the analyst.
+
+In local shadow mode proposals are validated and logged but do not mutate real
+claims. Cloud live mode uses the same tool boundary against Firestore, BigQuery
+history, and durable Firestore analyst-run records. Synthetic worked examples
+intentionally run =mode=live= only inside disposable SQLite databases so lifecycle
+writes can be asserted.
+
+* Credential warning
+=.env= exists, mode =0600=, and is excluded by both =.gitignore= and
+=.gcloudignore=. It contains the Gemini API credential and shadow-mode settings.
+Never print or read it through a tool response.
+
+The user pasted the current credential into the prior chat/session and intends to
+rotate it later. A fresh session should remind them to rotate it before submission
+or sharing. Do not copy the current value into documentation, commands, or logs.
+
+AI Studio project number supplied by user: =548847028907=.
+
+Model/API observations:
+- =gemini-flash-latest= returned transient 503 high demand.
+- Full =gemini-3.5-flash= hit its free-tier 5 requests/minute limit during ADK
+  retries.
+- Stable =gemini-3.5-flash-lite= passed the calibrated scenarios.
+- Vertex ADC generation smoke-tested successfully in the =global= location.
+- Scenario runner defaults to 35-second pacing because one tool run generally
+  needs two model requests.
+
+ADK currently emits harmless warnings about experimental function JSON schema and
+a deprecated =BaseAgentConfig=.
+
+* Calibration history
+Fixtures: =schemas/fixtures/analyst.scenarios.json=
+Runner: =pipeline/calibrate_scenarios.py=
+Single fixture runner: =pipeline/calibrate_analyst.py=
+
+Final behavior validated with real Gemini:
+| Scenario | Final result |
+|---+---|
+| Price $49->$79 | create fact/confirmed/critical, dated and quantified |
+| Same delta repeated | bump_verified (ordered redundancy check) |
+| Price $79->$59 | publish-before-retire supersession, linked version 2 |
+| Rust hiring + performance signals | 3-source intent inference; likely proposed, code clamped speculative |
+| Boring tutorial | no_action |
+| Third-party shutdown rumor | one-source speculative/critical dispute; target preserved; alert |
+| Primary-source denial | dispute superseded; target preserved; badge cleared; resolution event |
+
+Additional validated enforcement:
+- One-source normal inference is rejected.
+- One-source dispute inference is accepted.
+- Demotion backstop marks history disputed and emits alert if a model tries unsafe
+  supersession/adjustment.
+- =flag_disputed= is absent from ADK tools.
+
+The failed reports are intentionally retained; they drove spec corrections:
+- =worked-examples-20260820T102306Z.json= — fusion and demotion assumptions failed.
+- =worked-examples-20260820T102410Z.json= — fusion became likely, exposing vague
+  intent confidence semantics.
+- =worked-examples-20260820T102508Z.json= — no_action on rumor exposed flawed
+  reliance on model misbehavior to trigger demotion guard.
+- =worked-examples-20260820T105731Z.json= — model incorrectly thought inference
+  sources had to be primary; prompt clarified distinct third-party sources count.
+
+Passing corrected reports:
+- =worked-examples-20260820T105823Z.json= — third-party dispute.
+- =worked-examples-20260820T105916Z.json= — primary-source dispute resolution.
+- =worked-examples-20260820T110000Z.json= — fusion with deterministic confidence
+  clamp plus invalid one-source probe rejection.
+
+The narrative worth preserving for the submission/blog: calibration initially
+failed because the spec punished good judgment and gamed evidence semantics. The
+model exposed the design bugs; the final system represents contradictory signals
+honestly instead of forcing demotion.
+
+* Tests
+Last result: =92 passed= (only harmless ADK/dependency deprecation warnings).
+
+The cloud boundary has regression coverage for encoding nested delta JSON fields
+for BigQuery streaming inserts.
+
+#+begin_src bash
+uv run python -m compileall -q adapters schemas pipeline infra
+uv run pytest
+#+end_src
+
+Key test files:
+- =tests/test_fixtures.py=
+- =tests/test_claim_lifecycle.py=
+- =tests/test_tracer.py=
+- =tests/test_local_backend.py=
+- =tests/test_webpage.py=
+- =tests/test_gemini_analyst.py=
+- =tests/test_analyst_scenarios.py=
+- =tests/test_migration_tools.py= — backfill resume/idempotency, no-publish,
+  governed claim repair, table rename, and streaming-window coverage.
+- =tests/test_candidate_audit.py= — synthetic, cloud-free coverage of the
+  read-only candidate audit: strict row loading, comparison/observation/
+  chronology/hash checks, grounding rerun, noise-pair classification,
+  advisory classes, claim resolution, redaction, and exit codes.
+
+* Cloud status
+Project: =gen-lang-client-0110801105= (number =548847028907=).
+Billing account =0161C8-363868-4415A4= is open and linked.
+
+Current GCP stores (2026-08-26 during strict-table cutover):
+- BigQuery raw table: 92 observations and 96 Delta rows (=46 legacy, =50 v2);
+  the 46 legacy rows remain reserved for the immutable audit table.
+- Candidate: 50 strict =delta@2= rows with zero invariant violations.
+- GCS: 92 raw observation objects.
+- Firestore: 38 claims after migration and correction (27 retired legacy-backed
+  claims and 11 active v2-backed claims), with historical analyst/generation
+  records preserved. Zero active claims cite legacy evidence.
+- Cloud Scheduler =tycho-nightly= is enabled at 02:00 UTC.
+- Acquisition job generation =7= is deployed in =semantic= mode at digest
+  =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=.
+- Semantic execution =tycho-acquire-pvfqn= completed successfully; all four
+  natural semantic outcomes were validated noise.
+
+
+Existing live path:
+- Pub/Sub topic =tycho-deltas= and subscription =tycho-analyst-push=; ack
+  deadline is 600 seconds.
+- Endpoint, OIDC identity, and audience all target
+  =https://tycho-analyst-dispatcher-u2s544lf5a-uc.a.run.app=.
+- Cloud Run service =tycho-analyst= remains healthy as rollback.
+
+* Agent Runtime production migration
+- Agent Runtime: =projects/548847028907/locations/us-central1/reasoningEngines/8577815225082839040=
+- Automatic Registry entry:
+  =projects/gen-lang-client-0110801105/locations/us-central1/agents/agentregistry-00000000-0000-0000-17b9-6a1a1f2382cc=
+- Managed identity:
+  =agents.global.proj-548847028907.system.id.goog/resources/aiplatform/projects/548847028907/locations/us-central1/reasoningEngines/8577815225082839040=
+- Runtime roles: =roles/datastore.user=, =roles/bigquery.dataViewer=,
+  =roles/bigquery.jobUser=, =roles/telemetry.tracesWriter=.
+- Dispatcher identity: =tycho-agent-dispatcher@gen-lang-client-0110801105.iam.gserviceaccount.com=.
+- Agent Runtime uses explicit Firestore mTLS because Agent Identity tokens are
+  certificate-bound. The app does not use Memory Bank.
+- Evidence: =docs/agent-runtime-production-evidence.org=.
+- Deployment state: =data/agent_runtime_production.json=.
+
+The production subscription was cut over at =2026-08-25T14:17:59Z=. The first
+natural batch after that Agent Runtime route cutover is validated: five
+dispatcher HTTP 204 responses, five completed live Runtime runs, five
+=create_claim= actions, and five redacted managed traces. One cold-start 503
+retried successfully. Claims moved =22 -> 27=. The old Cloud Run analyst
+remains deployed for one-operation rollback.
+
+=infra/backfill_local.py= remains idempotent and preserves raw payload hashes.
+Cloud Gemini uses Vertex/ADC; the local =.env= API key is not uploaded.
+
+=infra/backfill_local.py= is idempotent, preserves raw payload hashes, skips and
+hash-checks existing GCS objects, and backfills observations, deltas, claims, and
+receipts. Local analyst runs and alerts are not backfilled.
+
+Cloud Gemini is enabled through the runtime service account and Vertex ADC; the
+=.env= API key is not uploaded. Rotate that exposed key before using local Gemini or
+sharing the project.
+
+* Gemini Enterprise Agent Platform spike
+A non-production ADK probe is deployed successfully without changing the live
+Cloud Run analyst path.
+
+- Agent Runtime: =projects/548847028907/locations/us-central1/reasoningEngines/8123514612671840256=
+- Automatic Agent Registry entry: =agentregistry-00000000-0000-0000-f78b-5b25b5318bbc=
+- Managed Agent Identity is active and has only one explicit project grant:
+  =roles/telemetry.tracesWriter=.
+- Two remote Gemini 3.5 Flash-Lite invocations completed the expected tool flow.
+- OpenTelemetry trace =6df87613b2397a8802335346b07aaa8d= contains workflow,
+  agent, two LLM, two generation, and tool-execution spans.
+- Staging bucket: =gs://gen-lang-client-0110801105-tycho-agent-staging=.
+- Reproducible code: =platform_spike/= and =infra/platform_spike.py=.
+- Full evidence and migration implications: =docs/enterprise-platform-spike.md=.
+
+The disposable probe demonstrated that default managed traces include full
+model request/response payloads. The production Runtime uses a redacting span
+processor; direct trace inspection found no unsafe fields.
+
+* Known limitations / do not forget
+1. Production acquisition has only =semantic= authority. Rollback is
+   pause/retry/previous semantic image or the documented table checkpoint; it
+   never enables Python Delta generation.
+2. Legacy-backed claims were governed through migration: 15 noise claims were
+   retired and 12 meaningful claims were processed. Six initial
+   =bump_verified= actions targeted claims that were then retired, so those six
+   v2 Deltas were force-rerun: five clean claims were created and one existing
+   clean claim was verified. There are now 11 active v2-backed claims and zero
+   active claims with legacy evidence.
+3. The old Cloud Run analyst and disposable Runtime probe remain deployed;
+   deletion requires separate approval.
+4. Current real sources are GitHub releases and official changelogs only. RSS and
+   search adapters are not implemented.
+5. GitHub raw responses include volatile metadata, so hashes may create changed
+   pairs even though semantic generation correctly classifies them as noise.
+6. No UI, brief writer, Q&A agent, Slack delivery, or receipt-producing consumer
+   is implemented yet.
+7. The repository is private (=nihsett/tycho=). =.env=, =data/=, caches, and
+   the virtualenv are gitignored and were never staged. The exposed
+   =GOOGLE_API_KEY= still needs rotation before sharing.
+
+* Recommended next session
+The only immediate task is to finish the strict BigQuery table swap after the
+post-streaming rename window. Read the =Gemini-only repair gate= below and
+=docs/gemini-delta-backlog-repair-handoff.org= completely. Do not begin the
+strategic-agent fleet before the swap and all read-backs pass.
+
+After approximately =2026-08-26T12:28Z=:
+1. Recheck that =deltas= has 96 rows, =deltas_v2_candidate= has 50 strict v2
+   rows, the audit table is absent, and no acquisition execution is active.
+   The read-only candidate audit does the row-level half of this check and
+   writes nothing:
+   #+begin_src bash
+   uv run python -m infra.audit_semantic_candidate \
+     --project gen-lang-client-0110801105
+   #+end_src
+   It exits nonzero on any hard failure. After the swap, pass
+   =--table deltas= to audit the canonical table with the same checks.
+2. Run the resumable apply path with explicit project and region:
+   #+begin_src bash
+   uv run python -m infra.cutover_semantic_deltas \
+     --project gen-lang-client-0110801105 --region us-central1 \
+     --apply --resume
+   #+end_src
+3. Verify canonical =tycho.deltas= has exactly 50 =delta@2= rows, audit
+   =tycho.delta_audit_log_20260826= has exactly 96 original rows including all
+   46 legacy IDs, the candidate name is gone, Scheduler is enabled, and all 11
+   active claims resolve only to canonical v2 evidence.
+4. Verify there was no backfill Pub/Sub, Runtime, or alert traffic, inspect
+   redacted telemetry, and update the repair evidence.
+5. Only then hand Luna =docs/strategic-agent-fleet-handoff.org=.
+
+The first natural meaningful =delta@2= Runtime validation remains a separate
+pending gate; never manufacture production evidence. Rotate =GOOGLE_API_KEY=
+before local Gemini use or submission.
+
+* Semantic Delta production state (2026-08-26)
+Production acquisition runs =semantic-delta@2= in =semantic= mode with Gemini
+3.7 Flash. Job generation =7= contains the strict-schema writer. The final
+physical table swap is NOT complete.
+
+
+=TYCHO_DIFFER_MODE= controls acquisition:
+- =semantic=: the only production mode; validated Gemini =delta@2= is
+  canonical and failures remain retryable without a Delta.
+- =historical_backfill=: explicit non-publishing repair traffic, never a live
+  acquisition mode.
+- Legacy differ/triage code is test/audit compatibility only and cannot be
+  selected by cloud deployment.
+
+The semantic path is in =pipeline/semantic_differ.py=. Comparison IDs include
+observation IDs, generator, and prompt version. Quotes cannot cross source-field
+boundaries. Mixed-product changelogs must connect changes to the configured
+entity; this removed unrelated ChatGPT entries from Codex output. Durable
+Firestore/SQLite leases retry failed or expired pairs.
+
+The earlier additive schema migration kept all rows loadable. The strict-table
+repair now has two tables: canonical =deltas= still has 96 mixed rows, while
+=deltas_v2_candidate= has 50 strict v2 rows. The immutable audit table does not
+exist until the final rename.
+
+Read-only historical replay:
+=uv run python -m experiments.semantic_delta_replay --project gen-lang-client-0110801105 --output data/semantic_delta_replay.json=
+
+Operational rollback is implemented by
+=infra/cutover_semantic_deltas.py --rollback= and preserves
+=TYCHO_DIFFER_MODE=semantic=; it never re-enables the Python differ.
+
+Current verification: =72= tests pass. All 42 saved historical replay outputs
+were reused without cloud writes; one fabricated before-quote was rejected and
+its targeted retry passed. Four missing shadow-only pairs used the allowed four
+Gemini calls. The 46 historical replacements contain 13 meaningful and 33 noise
+Deltas. Together with four natural post-authority v2 noise rows, the candidate
+contains 50 strict v2 rows. Firestore now has 27 retired legacy claims and 11
+active v2-backed claims. Backfill and claim correction produced no Pub/Sub
+publication or alerts; Pub/Sub still targets the Runtime dispatcher.
+
+Evidence:
+- =docs/semantic-delta-deployment-evidence.org=
+- =data/semantic_delta_replay.json=
+- =data/semantic_delta_replay_retry.json=
+- =data/semantic_delta_schema_migration.json=
+- =data/semantic_delta_production.json=
+- =data/runtime_natural_trace_inspection.json=
+
+Production authority is =TYCHO_DIFFER_MODE=semantic=. Repair artifacts are
+=data/semantic_delta_backfill_manifest.json= and
+=data/legacy_claim_migration.json=. The only safe rollback is the table/image
+checkpoint in =infra/cutover_semantic_deltas.py=; Python Delta generation is
+never restored.
+
+A meaningful =delta@2= and its end-to-end Runtime/trace validation remain
+pending a natural scheduled change. Do not replay history or manufacture a
+production change.
+
+* Read-only candidate audit (2026-08-26)
+=infra/audit_semantic_candidate.py= is the reusable replacement for the earlier
+ad-hoc candidate inspection. It reads BigQuery, GCS, and Firestore only: no
+insert, rename, publish, pause, or Gemini call. It loads every candidate row
+through the strict Delta model, re-verifies comparison IDs, observation
+identity, chronology, raw payload hashes, and canonical metadata, rebuilds the
+normalized before/after bundles from the immutable snapshots, and reruns the
+current grounding and policy validation. Output is bounded to IDs, counts, and
+failure classes; quotes appear only as a truncated SHA-256 fingerprint.
+
+Two findings are advisory and never fail the run:
+- =evidence_after_present_in_obs_before= — the after quote also occurs in the
+  before snapshot;
+- =cross_source_mirrored_evidence= — one entity republishes the same evidence
+  text across its own source family.
+
+Readback of =tycho.deltas_v2_candidate= on 2026-08-26 (exit code 0):
+- 50 candidate rows, 50 distinct delta IDs/comparison IDs/observation pairs;
+- 13 meaningful with 53 changes, 37 noise;
+- 50 revalidated pairs, 61 raw payloads hash-verified, 0 hard failures;
+- 20 normalized-identical noise pairs, 17 genuinely changed noise pairs;
+- 11 active claims, all facts, all resolving to meaningful candidate evidence
+  with matching entity/source and intact lifecycle links;
+- 13 advisories, all =cross_source_mirrored_evidence= for =claude_code= between
+  =github_releases= and =website_changelog=; zero
+  =evidence_after_present_in_obs_before=.
+
+* Gemini-only repair gate (2026-08-26)
+The four pre-swap gates are complete, but final table cutover is deliberately
+not complete:
+1. Updated semantic acquisition image deployed: job generation =7=,
+   image digest =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=.
+2. Six report-derived v2 Deltas were force-rerun in =migration= mode: one
+   existing claim verified, five clean v2-backed claims created, zero publishes
+   and zero alerts.
+3. =tests/test_migration_tools.py= covers resume/idempotency, no-publish,
+   claim-history migration, table rename, and the streaming blocker; =72= tests
+   pass with Ruff and compile checks.
+4. Pub/Sub Monitoring readback showed ten consecutive zero values for
+   =num_undelivered_messages=; endpoint, identity, audience, and ack deadline
+   match the preserved route in =data/semantic_delta_pubsub_readback.json=.
+
+Do not run the final table swap until BigQuery permits the required same-dataset
+rename. The exact blocker is BigQuery's post-streaming rename restriction. Its
+service window can persist for about five hours after the last streaming write
+even when the exposed buffer is empty; retry after approximately
+=2026-08-26T12:28Z=. As of =2026-08-26T08:14:35Z=, canonical =deltas= still had
+96 mixed rows, candidate had 50 strict v2 rows, the audit table was absent, both
+exposed streaming buffers were empty, Scheduler was enabled, generation =7= was
+deployed, Firestore had 27 retired and 11 active claims, and zero active claims
+cited legacy evidence. No copy/delete workaround is allowed.

@@ -1,0 +1,61 @@
+# tycho.yaml — the entity/source registry (in repo, versioned)
+entities:
+  claude_code:
+    name: "Claude Code"
+    description: "Anthropic's agentic coding tool."
+    aliases: ["Claude Code", "Anthropic Claude Code"]
+    sources:
+      github_releases: { repo: "anthropics/claude-code" }
+      website_changelog:
+        url: "https://code.claude.com/docs/en/changelog.md"
+        extract_hint: "version sections"
+
+  codex:
+    name: "OpenAI Codex"
+    description: "OpenAI's coding agent and CLI."
+    aliases: ["Codex", "Codex CLI", "OpenAI Codex"]
+    sources:
+      github_releases: { repo: "openai/codex" }
+      website_changelog:
+        url: "https://developers.openai.com/codex/changelog/"
+        extract_hint: "Codex changelog entries only"
+
+  gemini_cli:
+    name: "Gemini CLI"
+    description: "Google's open-source terminal coding agent."
+    aliases: ["Gemini CLI", "Google Gemini CLI"]
+    sources:
+      github_releases: { repo: "google-gemini/gemini-cli" }
+      website_changelog:
+        url: "https://geminicli.com/docs/changelogs/"
+        extract_hint: "release-note sections"
+
+  pi:
+    name: "Pi"
+    description: "The minimal coding-agent harness from pi.dev."
+    aliases: ["Pi coding agent", "pi.dev", "Pi agent harness"]
+    sources:
+      github_releases: { repo: "earendil-works/pi" }
+      website_changelog:
+        url: "https://pi.dev/news/releases?page=1"
+        extract_hint: "release entries"
+
+ontology:
+  - identity
+  - product/capabilities
+  - product/roadmap
+  - pricing
+  - gtm
+  - team
+  - traction
+  - sources
+
+staleness_days:
+  pricing: 30
+  product/capabilities: 60
+  identity: 90
+  default: 45
+
+schedules:
+  github_releases: "0 2 * * *"
+  website_changelog: "0 4 * * *"

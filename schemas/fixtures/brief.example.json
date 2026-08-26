@@ -1,0 +1,26 @@
+{
+  "brief_id": "brf_2026w34",
+  "period": {
+    "from": "2026-08-17T00:00:00Z",
+    "to": "2026-08-24T00:00:00Z"
+  },
+  "claims_referenced": [
+    {
+      "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5FAY",
+      "version": 1
+    },
+    {
+      "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5FB1",
+      "version": 1
+    }
+  ],
+  "stats": {
+    "new": 2,
+    "superseded": 1,
+    "confidence_changes": 0,
+    "stale_flagged": 0
+  },
+  "rendered_md": "# Coding-agent competitive brief — 2026-W34\n\nClaude Code and Codex both shipped notable changes.",
+  "delivered_to": ["slack"],
+  "created_at": "2026-08-24T08:00:00Z"
+}

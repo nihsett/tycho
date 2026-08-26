@@ -1,0 +1,166 @@
+#+TITLE: Tycho Semantic Delta Production Cutover — Luna Handoff
+#+DATE: 2026-08-26
+#+STARTUP: overview
+
+* Mission — superseded by the Gemini-only repair gate
+This file records the original shadow-to-semantic cutover plan. The repair plan
+superseded it: production acquisition now has only =semantic= mode, historical
+Gemini replacements and governed claim migration are complete, and the updated
+acquisition image is deployed. Do not follow the old no-deploy/no-claim-hygiene
+instructions below.
+
+The remaining operation is only the bounded strict-table swap. It must preserve
+=delta_audit_log_20260826=, require zero Pub/Sub backlog, and never re-enable
+Python Delta generation. The current blocker is BigQuery's streaming-data
+rename restriction; no copy/delete workaround is permitted.
+
+* Read first
+Read completely, in order:
+1. =docs/tycho-spec.org= — hard contract.
+2. =docs/architecture.md=.
+3. =docs/semantic-delta-deployment-evidence.org=.
+4. =docs/agent-runtime-production-evidence.org=.
+5. =data/semantic_delta_production.json=.
+
+Do not rerun the 42-pair replay. It is complete and cost about $2.12. Do not call
+Gemini except through one normal post-cutover acquisition execution and later
+natural scheduled changes.
+
+* Current verified state
+- Project: =gen-lang-client-0110801105=; region: =us-central1=.
+- Job: =tycho-acquire=, generation =7=, semantic image digest
+  =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=.
+- BigQuery raw =tycho.deltas=: 96 rows (=46 legacy, =50 v2); candidate
+  =deltas_v2_candidate=: 50 strict v2 rows with zero invariant violations.
+- Historical repair: 46/46 pairs inserted, zero retryable, zero publication.
+- Claims: 38 total, 11 active, zero active legacy evidence.
+- Pub/Sub endpoint, OIDC identity, and audience remain the Runtime dispatcher;
+  Monitoring readback shows zero undelivered messages.
+- Scheduler =tycho-nightly= is enabled at 02:00 UTC.
+- Tests: 72 passing, Ruff clean, compile clean.
+
+* Hard constraints
+1. Change only =TYCHO_DIFFER_MODE= on the existing acquisition job.
+2. The updated semantic acquisition image is already deployed; do not run a
+   final table swap until the streaming rename gate clears.
+3. Do not modify =tycho-analyst-push=, Runtime, Registry, IAM, scheduler, claims,
+   historical Deltas, or raw observations manually.
+4. Do not replay historical semantic candidates into BigQuery or claims.
+5. Noise must be stored as =delta@2= and never published.
+6. Meaningful =delta@2= must publish exactly once through the existing Runtime
+   dispatcher and cite exact Observation quotes.
+7. Keep both the old analyst and disposable platform probe. Deletion is separate
+   destructive work requiring approval.
+8. Never print prompts, responses, source snapshots, evidence quotes, or claim
+   text into ordinary logs/traces. Inspect structural metadata only.
+
+* Step 1 — Record baseline
+Use explicit project/region flags. Do not change global gcloud configuration.
+
+Record:
+- job image and =TYCHO_DIFFER_MODE=;
+- Pub/Sub endpoint/identity/audience;
+- Delta totals grouped by =schema_version=;
+- claim, analyst-run, generation-run, and generation-lease counts;
+- latest acquisition execution.
+
+If the job is no longer generation 5/image digest above, or Pub/Sub does not
+point to the Runtime dispatcher, stop and report the exact drift.
+
+* Step 2 — Reversible semantic cutover
+Run exactly:
+#+begin_src shell
+gcloud run jobs update tycho-acquire \
+  --project=gen-lang-client-0110801105 \
+  --region=us-central1 \
+  --update-env-vars=TYCHO_DIFFER_MODE=semantic \
+  --quiet
+#+end_src
+
+Read the job back. Require:
+- =TYCHO_DIFFER_MODE=semantic=;
+- unchanged image digest, service account, command, model, prompt environment,
+  task timeout, and all non-mode environment variables.
+
+Read back =tycho-analyst-push= again and require the same dispatcher endpoint,
+OIDC identity, and audience.
+
+* Step 3 — One acquisition execution
+Run the job once, not repeatedly:
+#+begin_src shell
+gcloud run jobs execute tycho-acquire \
+  --project=gen-lang-client-0110801105 \
+  --region=us-central1 \
+  --wait
+#+end_src
+
+If all sources are unchanged, the cutover is still valid. Do not manufacture a
+change or loop executions to force Gemini usage. Leave normal Scheduler traffic
+to produce the validation cases.
+
+If generation fails, inspect only bounded Firestore run metadata. Failed or
+expired leases are already retryable at the next acquisition. Do not create a
+fake Delta or manually advance the pair.
+
+* Step 4 — Validate a live noise Delta
+For the first changed pair classified as noise, require:
+- one new BigQuery row with =schema_version=delta@2=;
+- =diff_kind=semantic=;
+- =generated_by=gemini-3.7-flash@semantic-differ-1=;
+- =prompt_version=semantic-delta@2=;
+- non-empty =comparison_id=;
+- zero changes and zero =routed_to= scopes;
+- non-empty bounded =triage_reason=;
+- one completed semantic generation run/lease;
+- no new analyst run, claim, dispatcher delivery, or alert for that Delta;
+- no legacy Delta stored for the same new observation pair.
+
+* Step 5 — Validate a live meaningful Delta
+For the first natural meaningful result, require:
+- one =delta@2= row and no legacy row for the pair;
+- 1–8 semantic changes with category, scope, statement, and =evidence_after=;
+- every =evidence_after.obs_id= equals =obs_after=;
+- every optional =evidence_before.obs_id= equals =obs_before=;
+- derived =routed_to= matches the unique change scopes;
+- exactly one dispatcher HTTP 204 and one completed live analyst run;
+- a valid action whose claim evidence cites that Delta ID;
+- direct Cloud Trace inspection shows structural spans and safe IDs only, with
+  no request/response, prompt, quote, source, or claim content.
+
+A natural meaningful change may not occur during Luna's session. If absent,
+report =cutover complete; meaningful validation pending natural change=. Do not
+substitute replay data or generate synthetic production evidence.
+
+* Rollback conditions
+Rollback immediately if there is a systematic schema/storage error, repeated
+provider/permission failure, unexpected legacy fallthrough, noise publication,
+duplicate publication, unsafe telemetry, or analyst routing drift.
+
+Rollback means pause Scheduler and restore the documented table/image
+checkpoint while keeping =TYCHO_DIFFER_MODE=semantic=. Never restore the
+Python differ. Do not delete =delta@2= rows, observations, generation metadata,
+claims, or resources.
+
+* Evidence updates
+Update only after direct verification:
+- =data/semantic_delta_production.json=
+- =docs/semantic-delta-deployment-evidence.org=
+- =handoff.org=
+
+Record cutover timestamp, resulting job generation, execution ID, before/after
+counts, Delta IDs, run IDs, trace IDs, and any pending natural validation.
+Never copy source/model payloads into evidence files.
+
+* Definition of done
+- Production job reads back as =semantic=.
+- Runtime dispatcher route is unchanged.
+- One post-cutover execution succeeds or cleanly reports unchanged sources.
+- At least one natural noise =delta@2= is validated when available.
+- One natural meaningful =delta@2= is validated end-to-end when available.
+- No historical replay or manual claim mutation occurred.
+- The required same-dataset rename succeeds only after the BigQuery streaming
+  restriction clears; otherwise stop with the exact service error.
+- Rollback remains semantic-only.
+
+Stop after the strict-table swap. Provenance UI, brief writer, Strategist, probe
+deletion, and old-analyst deletion are separate plans.

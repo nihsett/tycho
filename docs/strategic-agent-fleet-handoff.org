@@ -1,0 +1,303 @@
+#+TITLE: Tycho Strategic Agent Fleet — Luna Handoff
+#+DATE: 2026-08-26
+#+STARTUP: overview
+
+* Outcome
+Add three visible ADK agents on top of Tycho's clean Gemini Delta and claim
+memory:
+
+1. =Strategist= proposes at most three cross-competitor conclusions.
+2. =Challenger= independently checks every conclusion against exact claim
+   versions and rejects weak reasoning.
+3. =Brief Writer= publishes only passed conclusions as a reproducible brief.
+
+Together with the existing =Analyst=, this is Tycho's four-agent production
+fleet. Do not add web search, generic chat, recommendations, personas, or more
+agents in this task.
+
+* Start gate
+Do not begin until =docs/gemini-delta-backlog-repair-handoff.org= is complete and
+direct verification proves:
+- canonical =tycho.deltas= contains only Gemini =delta@2=;
+- no active claim cites legacy evidence;
+- production acquisition is Gemini-only;
+- tests pass and Scheduler/Runtime routing are healthy.
+
+If any gate fails, stop and finish backlog repair first.
+
+* Read first
+Read completely:
+1. =docs/tycho-spec.org=.
+2. =docs/architecture.md=.
+3. =docs/gemini-delta-backlog-repair-handoff.org=.
+4. =schemas/claim.py=, =schemas/brief.py=, =pipeline/gemini_analyst.py=,
+   =pipeline/claims.py=, and both backend implementations.
+5. Google ADK Deep Search sample, especially =app/agent.py=. Borrow ADK workflow,
+   structured output, bounded evaluation, and event concepts only.
+
+Update the spec and architecture before contradictory code.
+
+* Product behavior
+A strategy session answers one fixed question:
+
+=What materially changed across the monitored coding-agent market, why does it
+matter, and what evidence could change this conclusion?=
+
+The session reads governed memory only. It does not search the web or read raw
+GCS snapshots. New external evidence must enter through acquisition first.
+
+A valid strategy card contains:
+- one concise present-state conclusion;
+- why a product/market decision-maker should care;
+- 2–5 exact premise claim references =(claim_id, version)=;
+- the canonical v2 Delta IDs underlying those premises;
+- confidence =likely|speculative=;
+- a competing explanation;
+- a concrete future signal that would falsify the conclusion;
+- affected entities and ontology scopes.
+
+V1 must not infer company intent, motives, or future plans. Keep strategy cards
+=present_state= until Tycho has genuinely independent source families beyond
+duplicated official release channels.
+
+* Evidence rules enforced in Python
+The model may propose; tools decide what is valid.
+
+A strategy card passes deterministic validation only when:
+1. Every premise claim exists, is active, and matches the exact referenced
+   version.
+2. Every premise ultimately cites canonical Gemini =delta@2= rows.
+3. At least two distinct entities are represented.
+4. At least two distinct source identities are represented.
+5. Duplicate official release text appearing in GitHub and a mirrored changelog
+   is one source family, not independent corroboration. Implement deterministic
+   source-family normalization.
+6. No premise is stale under =tycho.yaml= thresholds unless the card explicitly
+   labels the limitation and confidence is speculative.
+7. The conclusion does not claim removal, causation, intent, market leadership,
+   or future action without evidence that explicitly supports it.
+8. Confidence cannot exceed the weakest required premise and is never
+   =confirmed=.
+9. At most three cards survive one session.
+10. No model-generated citation, claim ID, version, Delta ID, metric, or count is
+    accepted without store lookup/recomputation.
+
+Model agreement is not evidence. Challenger approval is quality control, not an
+additional source.
+
+* Schemas
+Add strict Pydantic schemas, likely in =schemas/strategy.py=:
+
+- =PremiseReference=: =claim_id=, =claim_version=, canonical =delta_ids=.
+- =StrategyCard=: ID, statement, rationale, confidence, competing explanation,
+  falsifier, entities, scopes, premise references, status
+  =proposed|passed|rejected=, rejection reasons.
+- =ChallengeResult=: card ID, =pass|fail=, unsupported premise IDs, policy
+  violations, concise correction request.
+- =StrategySession=: session ID, period, input claim-version manifest, cards,
+  agent versions, model versions, state, timestamps, run IDs, safe metrics.
+- Extend =Brief= only as needed with =strategy_session_id= and passed strategy
+  card IDs while retaining pinned claim versions.
+
+All IDs and lengths are bounded. Unknown fields are rejected. Strategy sessions
+and briefs are write-once; a rerun creates a new session.
+
+Do not force strategy cards into =Claim= immediately. Persist passed cards in the
+session first. If later promoted to inference claims, use a separate explicitly
+approved action and the existing evidence bars.
+
+* Deterministic context builder
+Create =pipeline/strategy_context.py=.
+
+It should load:
+- active non-operational claims backed only by canonical v2;
+- exact claim versions and staleness;
+- claims created/superseded during a bounded period, default seven days;
+- deterministic metrics computed from canonical Deltas: meaningful change count,
+  category/scope count, entity coverage, and recency;
+- no raw payloads and no model text outside governed claims/Deltas.
+
+Metrics must carry their contributing Delta IDs. Cap context by explicit bytes
+and estimated tokens. Select recent/notable claims deterministically before any
+model call. Oversized input fails durably; never truncate evidence invisibly.
+
+* Agent 1 — Strategist
+Implement an ADK =LlmAgent= named =tycho_strategist= using a Google model through
+Vertex/Agent Platform ADC.
+
+Input: the bounded context manifest and the fixed strategy question.
+Output: strict structured draft with at most three cards.
+
+Instructions:
+- synthesize only across supplied premises;
+- produce present-state conclusions, not release summaries;
+- name uncertainty and competing explanations;
+- include a falsifier;
+- never invent IDs, versions, metrics, motives, or recommendations;
+- return zero cards when no defensible cross-entity pattern exists.
+
+Run Python validation immediately. Invalid cards are marked rejected before the
+Challenger sees them.
+
+* Agent 2 — Challenger
+Implement a separate ADK =LlmAgent= named =tycho_challenger= with strict
+=ChallengeResult= output.
+
+For each surviving card it receives only:
+- the proposed card;
+- exact pinned premise claims;
+- bounded canonical Delta metadata/evidence already admitted by the context
+  builder;
+- deterministic policy-check results.
+
+It must actively look for:
+- conclusion stronger than premises;
+- duplicated/non-independent evidence;
+- stale or contradictory claims;
+- version/release diary disguised as strategy;
+- unsupported causation, intent, leadership, or prediction;
+- missing competing explanation or unusable falsifier.
+
+Python is final authority. A Challenger =pass= cannot override a failed hard
+check. There is no open-ended loop in V1: one Strategist pass and one Challenger
+pass only. Rejected cards remain visible in the session audit but cannot enter
+the brief.
+
+* Agent 3 — Brief Writer
+Implement =tycho_brief_writer= as an ADK =LlmAgent=.
+
+It receives only:
+- passed cards;
+- their pinned premise claim versions;
+- deterministic period statistics.
+
+It writes a short report with:
+1. =What changed= — factual, claim-backed changes.
+2. =What Tycho concludes= — passed strategy cards with confidence.
+3. =Counter-signals= — competing explanations and contradictions.
+4. =What would change our mind= — falsifiers.
+
+Use machine citation markers such as
+=<claim id="clm_..." version="3"/>=. A deterministic callback replaces markers
+with dashboard links. Unknown or unpinned citations are removed and fail the
+run. Do not cite URLs directly; Tycho citations point to claim-version
+provenance.
+
+The final =Brief= pins every referenced claim version and remains reproducible.
+No automatic Slack/email delivery in this task. Publishing means storing the
+brief for the dashboard.
+
+* ADK orchestration
+Create a separate package such as =strategy_agent/= with one ADK =App=.
+
+Use a clear sequential workflow:
+
+#+begin_example
+bounded context builder (Python)
+  -> tycho_strategist
+  -> hard proposal validation
+  -> tycho_challenger
+  -> hard challenge gate
+  -> tycho_brief_writer
+  -> citation validation + write-once persistence
+#+end_example
+
+Use ADK agent names exactly so traces and the dashboard activity timeline are
+legible. Do not expose prompts, model responses, claim text, or evidence in
+persisted traces. Export safe events only: session ID, agent name, state, card
+count, rejection count, claim IDs/versions, run ID, token counts, and latency.
+
+* Trigger and persistence
+Support two triggers using the same code path:
+- weekly Cloud Scheduler session;
+- authenticated dashboard =Run Strategy Session= action.
+
+Use a transactional lease keyed by =(period_from, period_to,
+strategy_version)=. Duplicate triggers return the existing session. Failed or
+expired sessions are retryable. Store runs, leases, sessions, and briefs in
+Firestore with local SQLite parity.
+
+The dispatcher accepts only a bounded period/request ID, not arbitrary prompt
+text. User-selected scope may be added later; V1 uses the fixed market question.
+
+* Deployment
+Deploy this as a separate managed Agent Runtime named =Tycho Strategy Council=
+so Registry, Runtime identity, named sub-agent traces, and scaling are visible.
+Use min 0/max 1 initially.
+
+Its identity needs only:
+- Firestore read/write for strategy sessions, leases, briefs, and governed claim
+  tools;
+- BigQuery canonical Delta read/job access;
+- trace writer.
+
+No GCS, Pub/Sub, broad Storage, or Memory Bank access. Firestore claims remain
+institutional truth.
+
+Use a private Cloud Run dispatcher with a separate service account. Do not alter
+=tycho-analyst-push=. Add a separate Scheduler/endpoint for strategy sessions.
+Production routing changes require read-back of endpoint, identity, and audience.
+
+* Tests
+Required tests include:
+- exact claim-version pinning and stale premise handling;
+- canonical-v2 evidence only;
+- source-family deduplication;
+- minimum entity/source diversity;
+- intent/causation/leadership rejection;
+- zero-card legitimate outcome;
+- Challenger cannot override hard failure;
+- rejected card excluded from brief;
+- citation marker validation;
+- reproducible brief after later claim supersession;
+- duplicate trigger lease and failed retry;
+- local/cloud parity;
+- input budget failure before Gemini;
+- redacted traces/events;
+- no GCS/web-search tool or permission;
+- no claim mutation during normal strategy session.
+
+Use synthetic fixtures in disposable stores. Do not contaminate production or
+=data/tycho.sqlite3=.
+
+* Deployment validation
+Before claiming completion:
+1. Run full tests/Ruff/compile checks.
+2. Run one local fixture session with one passed and one rejected card.
+3. Deploy Runtime and verify automatic Registry registration/identity.
+4. Run one production session over canonical active claims.
+5. Confirm session/brief persistence and exact claim-version citations.
+6. Inspect every persisted trace directly for content leakage.
+7. Confirm existing acquisition, Analyst Runtime, Pub/Sub route, claims, and
+   canonical Delta counts are unchanged by deployment.
+8. Confirm duplicate trigger skips the model call.
+
+Do not manufacture strategic conclusions when production evidence is
+insufficient. A stored empty brief stating no defensible cross-entity pattern is
+a valid production result.
+
+* Evidence updates
+Update:
+- =docs/tycho-spec.org=
+- =docs/architecture.md=
+- =handoff.org=
+
+Create =docs/strategic-agent-fleet-evidence.org= and bounded machine state under
+=data/=. Record resource IDs, agent names/versions, IAM, run/session IDs, card
+counts, claim-version manifest hash, token/cost totals, trace IDs, and unsafe
+field inspection. Do not persist prompts/responses in ordinary evidence.
+
+* Definition of done
+- Three named ADK agents run in one bounded workflow.
+- Every strategy conclusion is pinned to exact active claim versions and
+  canonical Gemini Deltas.
+- Challenger rejects unsupported conclusions; pass is not treated as evidence.
+- Brief contains only passed cards and deterministic citations.
+- Sessions/briefs are reproducible, leased, retryable, and visible to dashboard
+  APIs.
+- Runtime, Registry, Agent Identity, IAM, and redacted traces are verified.
+- Existing acquisition/Analyst production paths remain unchanged.
+- Full tests pass.
+
+Stop after backend/API contracts and deployment evidence are ready. Hand the
+separate dashboard document to Luna next.

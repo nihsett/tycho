@@ -1,0 +1,20 @@
+# Local Python environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Credentials. Never commit; rotate if ever exposed.
+.env
+
+# Local runtime state: SQLite stores, write-once raw payloads, fleet logs,
+# calibration output, and machine-generated evidence reports.
+data/
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*.tmp

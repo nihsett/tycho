@@ -1,0 +1,25 @@
+{
+  "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5FAY",
+  "entity": "claude_code",
+  "scope": "product/capabilities",
+  "class": "fact",
+  "statement": "Claude Code published v2.1.237 on 2026-08-20.",
+  "rationale": "A new release can materially change workflows and compatibility for coding-agent users.",
+  "confidence": "confirmed",
+  "severity": "notable",
+  "evidence": [
+    {
+      "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "source": "github_releases",
+      "note": "Official Anthropic GitHub release feed changed."
+    }
+  ],
+  "status": "active",
+  "superseded_by": null,
+  "supersedes": null,
+  "version": 1,
+  "created_at": "2026-08-20T02:05:00Z",
+  "last_verified_at": "2026-08-20T02:05:00Z",
+  "created_by": "analyst@1",
+  "history": []
+}

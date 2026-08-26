@@ -1,0 +1,52 @@
+{
+  "old": {
+    "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5FB4",
+    "entity": "pi",
+    "scope": "product/capabilities",
+    "class": "fact",
+    "statement": "Pi's current release is v0.84.1 as of 2026-08-13.",
+    "rationale": "The current version determines which harness features users can install.",
+    "confidence": "confirmed",
+    "severity": "notable",
+    "evidence": [
+      {
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FB6",
+        "source": "github_releases",
+        "note": "Official pi.dev GitHub release feed."
+      }
+    ],
+    "status": "superseded",
+    "superseded_by": "clm_01ARZ3NDEKTSV4RRFFQ69G5FB5",
+    "supersedes": null,
+    "version": 1,
+    "created_at": "2026-08-13T10:00:00Z",
+    "last_verified_at": "2026-08-14T10:14:32Z",
+    "created_by": "analyst@1",
+    "history": []
+  },
+  "new": {
+    "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5FB5",
+    "entity": "pi",
+    "scope": "product/capabilities",
+    "class": "fact",
+    "statement": "Pi's current release is v0.84.2 as of 2026-08-14.",
+    "rationale": "The new release supersedes v0.84.1 and may change harness behavior.",
+    "confidence": "confirmed",
+    "severity": "notable",
+    "evidence": [
+      {
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FB7",
+        "source": "github_releases",
+        "note": "Official pi.dev GitHub release feed added v0.84.2."
+      }
+    ],
+    "status": "active",
+    "superseded_by": null,
+    "supersedes": "clm_01ARZ3NDEKTSV4RRFFQ69G5FB4",
+    "version": 2,
+    "created_at": "2026-08-14T10:14:32Z",
+    "last_verified_at": "2026-08-14T10:14:32Z",
+    "created_by": "analyst@1",
+    "history": []
+  }
+}

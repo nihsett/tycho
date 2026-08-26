@@ -1,0 +1,291 @@
+#+TITLE: Tycho Semantic Delta Deployment Evidence
+#+DATE: 2026-08-26
+#+STARTUP: overview
+
+* Scope
+This document records semantic Delta implementation, historical evaluation,
+canonical BigQuery migration, deployed production shadow validation, and the
+reversible semantic authority cutover. On =2026-08-26T05:55:33.502147Z= the
+existing acquisition job changed only =TYCHO_DIFFER_MODE= from =shadow= to
+=semantic=; the image, runtime identity, command, model/prompt contract, and
+analyst route were unchanged. The one post-cutover execution completed four
+natural noise =delta@2= outcomes. No historical semantic result entered
+production, and no meaningful natural change occurred during this validation
+window; meaningful validation remains pending a scheduled natural change.
+
+* Final implementation contract
+- Model: =gemini-3.7-flash= through Vertex/Agent Platform ADC at =global=.
+- Generator: =gemini-3.7-flash@semantic-differ-1=.
+- Prompt: =semantic-delta@2= with LOW thinking and strict JSON.
+- Canonical domain: strict =delta@2= only in the fresh BigQuery
+  =tycho.deltas= table after cutover; retired =delta@1= rows are preserved
+  only in =tycho.delta_audit_log_20260826=.
+- Comparison identity:
+  =(obs_before, obs_after, generated_by, prompt_version)=.
+- Grounding: a quote must occur within one actual source string field; JSON
+  keys and adjacent fields cannot be concatenated into evidence.
+- Mixed-product sources: sibling-product entries are excluded unless quoted
+  content explicitly connects the change to the configured entity or one of
+  its unmistakable components.
+- Generation leases: transactional Firestore/SQLite ownership with durable
+  failed/expired retry and shadow-to-semantic promotion.
+- Noise is durable only in semantic mode; it is never published to Pub/Sub.
+- Prompt, response, quotes, and source content are absent from generation-run
+  metadata and ordinary logs.
+
+The spec was updated before the entity-relevance prompt revision. Architecture
+and fixtures now describe =semantic-delta@2= and the versioned comparison ID.
+
+* Repository validation
+#+begin_src shell
+uv run pytest -q
+uv run python -m compileall -q schemas pipeline infra experiments
+uv run ruff check pipeline/semantic_differ.py tests/test_semantic_differ.py \
+  experiments/semantic_delta_replay.py
+#+end_src
+
+Final result: =72 passed= and Ruff clean. Regression tests include field-boundary
+quote rejection and model/prompt-sensitive comparison identity.
+
+The deployment script also now preserves an existing =tycho-analyst-push= route
+by default. =--replace-analyst-push= is required to reroute it to the Cloud Run
+rollback analyst, preventing an ordinary deploy from silently undoing Agent
+Runtime routing.
+
+* Historical replay
+Replay read immutable BigQuery Observation IDs and GCS snapshots and wrote only
+local JSON reports. Every report records =writes_performed: []=.
+
+** Precision defect found and repaired
+The first full replay proved schema/grounding reliability but exposed broad
+OpenAI changelog contamination: general ChatGPT Sites, Computer History, plugin
+export, cloud-browser, and scheduled-task entries were admitted into the
+=codex= entity. The contract and prompt were revised to =semantic-delta@2=.
+
+A targeted replay of all five Codex webpage pairs then produced:
+- total: =5=
+- meaningful: =3=
+- noise: =2=
+- failures: =0=
+- estimated cost: =$0.399429=
+
+The retained changes explicitly concerned Codex cloud/GitLab, Codex threads and
+CLI, the Codex MCP deprecation, Apple Messages use by Codex, or WebMCP use by
+Codex. The unrelated sibling-product entries were omitted.
+
+** Full =semantic-delta@2= gate
+=data/semantic_delta_replay.json= contains all =42= historical pairs:
+- meaningful: =12=
+- noise: =29=
+- deterministically rejected: =1=
+- estimated cost: =$2.122296=
+
+The rejected pair was
+=dlt_01M0KK6HZ8W3MF0J0QC8A1ZC63=; Gemini supplied an =evidence_before= quote
+that did not occur in =obs_before=. Python rejected the entire proposal and
+created no Delta. Retrying only that immutable pair in
+=data/semantic_delta_replay_retry.json= passed as meaningful at =$0.028962=.
+This demonstrates the intended failure/retry behavior rather than silently
+accepting a fabricated quote.
+
+Across the gate, all eight Gemini CLI GitHub transitions were noise; seven of
+eight Codex GitHub and seven of eight Pi GitHub transitions were noise. Useful
+capabilities and the explicit Codex MCP deprecation remained grounded.
+
+* Canonical BigQuery migration
+The additive migration completed successfully:
+#+begin_src shell
+uv run python -m infra.migrate_delta_schema \
+  --project gen-lang-client-0110801105 --dataset tycho
+#+end_src
+
+Evidence: =data/semantic_delta_schema_migration.json=.
+
+Verified directly after migration:
+- canonical table: =gen-lang-client-0110801105.tycho.deltas=
+- =changes.path=: =NULLABLE=
+- semantic top-level and nested fields: present and nullable as designed
+- second Delta table: not created
+- rows before shadow execution: =42=
+- legacy rows: =42=
+- semantic rows: =0=
+- legacy rows successfully loaded through the versioned model: =42/42=
+
+No existing row or claim was rewritten.
+
+* Production shadow deployment before cutover
+Only the acquisition job was deployed. The monolithic deployment path was not
+used because analyst routing is a separate production concern.
+
+| Item | Value |
+|---+---|
+| Cloud Run job | =tycho-acquire= |
+| Job generation | =5= |
+| Image | =us-central1-docker.pkg.dev/gen-lang-client-0110801105/cloud-run-source-deploy/tycho-acquire@sha256:cdbec9b2040b131c3b84bced845b438573ce19a9ac1557db503271a41d7e7df2= |
+| Service account | =tycho-runtime@gen-lang-client-0110801105.iam.gserviceaccount.com= |
+| Differ mode | =shadow= |
+| Semantic model | =gemini-3.7-flash= |
+| Prompt | =semantic-delta@2= |
+| Task timeout | =1800s= |
+| Scheduler | =tycho-nightly=, enabled, =0 2 * * *= UTC |
+
+The deployed environment sets enterprise ADC, =global= model location, and both
+GenAI/ADK message-content capture flags to =false=.
+
+The live Pub/Sub subscription remained unchanged throughout:
+- endpoint: =https://tycho-analyst-dispatcher-u2s544lf5a-uc.a.run.app=
+- OIDC identity: =tycho-agent-dispatcher@gen-lang-client-0110801105.iam.gserviceaccount.com=
+- audience: the same dispatcher URL
+
+The old =tycho-analyst= service remains healthy as rollback.
+
+* Deployed shadow execution
+Execution =tycho-acquire-nfc9l= completed successfully at
+=2026-08-26T05:20:32.692725Z=.
+
+Four GitHub observations changed. Each ran Gemini and completed one Firestore
+shadow generation lease:
+- completed runs: =4/4=
+- validation: =passed= for all four
+- semantic outcomes: =4 noise=
+- semantic Delta IDs: none, as required in shadow mode
+- total tokens: =131373=
+- estimated cost: =$0.099307=
+
+Before the semantic authority repair, the mechanical path appended four
+=delta@1= noise rows and published none. After that historical execution:
+- BigQuery rows: =46= (=46 legacy=, =0 semantic=)
+- claims before/after: =27 / 27=
+- analyst runs before/after: =27 / 27=
+- generation runs/leases: =4 / 4=, all completed
+
+Cloud Logging for the execution contains only mode, observation/Delta IDs,
+outcomes, and platform lifecycle entries. Searches found no before/after
+snapshots, system instructions, evidence, model output, or representative
+source/claim text. Acquisition emitted no Cloud Trace spans during the checked
+window; its durable Firestore metadata is structural-only.
+
+* Production semantic cutover
+The reversible authority change was performed without =infra/deploy.py= or an
+image rebuild:
+
+#+begin_src shell
+gcloud run jobs update tycho-acquire \
+  --project=gen-lang-client-0110801105 \
+  --region=us-central1 \
+  --update-env-vars=TYCHO_DIFFER_MODE=semantic \
+  --quiet
+#+end_src
+
+The read-back at =2026-08-26T05:55:33.502147Z= showed:
+- job generation =6= (from =5=);
+- =TYCHO_DIFFER_MODE=semantic=;
+- unchanged image digest
+  =sha256:cdbec9b2040b131c3b84bced845b438573ce19a9ac1557db503271a41d7e7df2=;
+- unchanged service account, command, args, 1800-second timeout, model,
+  prompt version, and all non-mode environment variables;
+- unchanged =tycho-analyst-push= dispatcher endpoint, OIDC identity, and
+  audience.
+
+* Post-cutover execution and natural noise validation
+Exactly one post-cutover execution was run:
+
+| Item | Value |
+|---+---|
+| Execution | =tycho-acquire-pvfqn= |
+| Created | =2026-08-26T05:55:58.801860Z= |
+| Completed | =2026-08-26T05:58:38.699624Z= |
+| Result | succeeded |
+| Observations | =84 -> 92= |
+| BigQuery Deltas | =46 -> 50= |
+| Legacy Deltas | =46 -> 46= |
+| Semantic Deltas | =0 -> 4= |
+
+The four changed GitHub pairs each produced one completed semantic generation
+run and lease. All four passed validation and classified as noise. Each stored
+row was =delta@2= with =diff_kind=semantic=,
+=generated_by=gemini-3.7-flash@semantic-differ-1=,
+=prompt_version=semantic-delta@2=, a non-empty comparison ID, zero changes,
+zero routed scopes, and a non-empty bounded triage reason. No legacy Delta
+exists for any of the four observation pairs.
+
+| Entity | Delta ID | Generation run ID | Observation pair |
+|---|---|---|---|
+| =claude_code= | =dlt_01M0YAB7KKVE3T0YZGAF58M1WW= | =run_01M0YAB4N5ZMCWZ4T4FMXVYV0E= | =obs_01M0Y853HQHK95JSH5NGN1F6TR= -> =obs_01M0YAB1N140E8BJE0D5H9QVBR= |
+| =codex= | =dlt_01M0YABMCZGZJKW59H8C9R4G1R= | =run_01M0YABG9HBBK0V6W3G3YNK8QP= | =obs_01M0Y85DN88JHGQXN14NEYYYGM= -> =obs_01M0YABC905DHQAS1R6D0XQ7YV= |
+| =gemini_cli= | =dlt_01M0YABWKJ7V2VYMCS3E1E1J5H= | =run_01M0YABSVANG7RTJJ8GZFPMQMY= | =obs_01M0Y85R25J6P0N077RHP7M89P= -> =obs_01M0YABQPRFG7160212Y227ZQW= |
+| =pi= | =dlt_01M0YAC44N6QGHAAJVJ4NQ8PXH= | =run_01M0YAC0ESPJ2DS25MW28DMQ67= | =obs_01M0Y85ZKB142MMYV3JEJ2R7RG= -> =obs_01M0YABYJV3JF5Q0YVF7V5JJ4G= |
+
+Before/after Firestore counts were claims =27 -> 27=, analyst runs
+=27 -> 27=, alerts =0 -> 0=, generation runs =4 -> 8=, and generation
+leases =4 -> 8=. The dispatcher log had zero requests in the execution
+window, so there was no analyst delivery, claim mutation, alert, or trace to
+inspect. A meaningful natural =delta@2= remains pending; no replay or
+synthetic production change was used.
+
+* Prior Agent Runtime route validation (legacy Delta batch)
+The first natural meaningful legacy batch after the Agent Runtime route cutover
+was independently verified for the =2026-08-26T02:00Z= scheduled acquisition:
+- five meaningful Deltas reached the private dispatcher;
+- five dispatcher requests completed HTTP =204=;
+- five live =gemini-analyst@1= runs completed;
+- five =create_claim= actions produced five evidenced claims;
+- the claims count moved from =22= to =27=;
+- one cold-start Runtime invocation returned =503= and Pub/Sub retried it
+  successfully; no delivery was lost.
+
+Six associated traces were inspected directly: five managed Runtime traces and
+one dispatcher HTTP trace. Runtime traces contain 11 structural spans including
+=tycho.analyze_delta=, =generate_content gemini-3.5-flash-lite=,
+=execute_tool create_claim=, and =execute_tool finish_task=. Persisted labels are
+limited to platform metadata, safe Tycho IDs/entity/source/mode/action/result,
+model name, finish reason, and token counts. No prompt, model response, evidence,
+claim text, or source content was present. Bounded inspection evidence is in
+=data/runtime_natural_trace_inspection.json=.
+
+This validates production Runtime transport and redaction. The five claims were
+created from legacy Deltas and still demonstrate the release-diary/noise defects
+that semantic Delta is intended to prevent; they were not rewritten during this
+migration.
+
+* Current gate and rollback
+Current acquisition mode is =semantic= and the updated acquisition image is
+deployed. Operational rollback pauses Scheduler and restores the table/image
+checkpoint; it never enables Python Delta generation or changes the Runtime
+route.
+
+Deletion of either physical table remains separate destructive work requiring
+approval.
+
+* Gemini-only backlog repair addendum (2026-08-26)
+The resumable repair completed before the table swap:
+- 46 legacy observation pairs were derived by BigQuery join; 42 saved replay
+  cases were revalidated/imported and exactly four missing pairs made one Gemini
+  3.7 Flash call each.
+- 46 strict v2 rows were inserted with =enqueue=false=; the repair published
+  zero Pub/Sub messages, invoked Runtime zero times, and created zero alerts.
+- Outcomes were 13 meaningful and 33 noise; no pair is retryable. Safe
+  structural provenance is in =data/semantic_delta_backfill_manifest.json=.
+- Claim migration selected 27 claims: 15 noise claims were retired and 12
+  meaningful claims were processed by the governed analyst. Six Deltas whose
+  first migration action was =bump_verified= were force-rerun in migration mode;
+  one was verified and five created clean v2-backed claims. The rerun report is
+  =data/legacy_claim_migration_rerun.json=.
+- The updated acquisition job is deployed at image
+  =us-central1-docker.pkg.dev/gen-lang-client-0110801105/cloud-run-source-deploy/tycho-analyst@sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=,
+  generation =7=, with =TYCHO_DIFFER_MODE=semantic= and Vertex/ADC settings.
+- Read-only Pub/Sub Monitoring showed zero undelivered messages for the
+  ten-minute window; endpoint, OIDC identity, audience, and ack deadline are
+  unchanged. Evidence: =data/semantic_delta_pubsub_readback.json=.
+- Dedicated migration-tool tests cover manifest resume, idempotent replay
+  import, non-publishing historical generation, claim retirement history, and
+  same-dataset table rename/streaming blocker behavior. The suite is =72 passed=.
+
+The final table swap is intentionally still pending: BigQuery currently refuses
+renaming the raw table with the exact blocker =Cannot rename ... because it has
+streaming data=. BigQuery documents that this restriction can persist for about
+five hours after the last streaming operation even when the exposed buffer is
+empty. The last raw-table write was at approximately =2026-08-26T07:28Z=;
+retry after the service-side window with a read-only buffer check. No
+copy/delete workaround was used. The candidate remains intact with 50/50
+strict v2 rows and zero candidate invariant violations.

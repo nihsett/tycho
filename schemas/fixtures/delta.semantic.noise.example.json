@@ -1,0 +1,19 @@
+{
+  "schema_version": "delta@2",
+  "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FB2",
+  "comparison_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "entity": "gemini_cli",
+  "source": "github_releases",
+  "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+  "computed_at": "2026-08-25T02:03:11Z",
+  "diff_kind": "semantic",
+  "generated_by": "gemini-3.7-flash@semantic-differ-1",
+  "prompt_version": "semantic-delta@2",
+  "changes": [],
+  "summary": "No durable product change was found.",
+  "triage": "noise",
+  "triage_reason": "The snapshots differ only by nightly bookkeeping and routine fixes.",
+  "triage_by": "gemini-3.7-flash@semantic-differ-1",
+  "routed_to": []
+}

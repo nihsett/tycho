@@ -1,0 +1,23 @@
+{
+  "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+  "entity": "claude_code",
+  "source": "github_releases",
+  "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+  "computed_at": "2026-08-20T02:03:11Z",
+  "diff_kind": "structured",
+  "changes": [
+    {
+      "path": "releases.v2.1.237",
+      "before": null,
+      "after": {
+        "tag_name": "v2.1.237",
+        "name": "v2.1.237"
+      }
+    }
+  ],
+  "summary": "Claude Code published release v2.1.237.",
+  "triage": "meaningful",
+  "triage_by": "rules@1",
+  "routed_to": ["product/capabilities", "product/roadmap"]
+}

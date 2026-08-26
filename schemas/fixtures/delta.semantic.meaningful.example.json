@@ -1,0 +1,32 @@
+{
+  "schema_version": "delta@2",
+  "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FB1",
+  "comparison_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "entity": "pi",
+  "source": "github_releases",
+  "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+  "computed_at": "2026-08-25T02:03:11Z",
+  "diff_kind": "semantic",
+  "generated_by": "gemini-3.7-flash@semantic-differ-1",
+  "prompt_version": "semantic-delta@2",
+  "changes": [
+    {
+      "category": "capability",
+      "scope": "product/capabilities",
+      "statement": "Pi added optional native PowerShell execution on Windows.",
+      "before": null,
+      "after": "Native PowerShell execution is available as an optional tool.",
+      "evidence_before": null,
+      "evidence_after": {
+        "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "quote": "Added an optional `powershell` tool for Windows."
+      }
+    }
+  ],
+  "summary": "Pi added optional native PowerShell execution.",
+  "triage": "meaningful",
+  "triage_reason": "The release introduces a durable user-facing capability.",
+  "triage_by": "gemini-3.7-flash@semantic-differ-1",
+  "routed_to": ["product/capabilities"]
+}

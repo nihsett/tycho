@@ -1,0 +1,616 @@
+{
+  "scenarios": [
+    {
+      "name": "price_change_then_redundancy",
+      "expected_action": "create_claim",
+      "repeat_expected_action": "bump_verified",
+      "delta": {
+        "schema_version": "delta@2",
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H02",
+        "comparison_id": "sha256:bfac5c7af8e136be6e3d4e1e7d0d8aa878fdec69a74e11c9b45eaab5015b21c3",
+        "entity": "claude_code",
+        "source": "website_changelog",
+        "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H00",
+        "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H01",
+        "computed_at": "2026-08-20T10:00:00Z",
+        "diff_kind": "semantic",
+        "generated_by": "gemini-3.7-flash@semantic-differ-1",
+        "prompt_version": "semantic-delta@2",
+        "changes": [
+          {
+            "category": "pricing",
+            "scope": "pricing",
+            "statement": "Claude Code Pro price increased from $49 to $79 per month on 2026-08-20.",
+            "before": "$49",
+            "after": "$79",
+            "evidence_before": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H00",
+              "quote": "$49"
+            },
+            "evidence_after": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H01",
+              "quote": "$79"
+            }
+          }
+        ],
+        "summary": "Claude Code Pro price increased from $49 to $79 per month on 2026-08-20.",
+        "triage": "meaningful",
+        "triage_reason": "Claude Code Pro price increased from $49 to $79 per month on 2026-08-20.",
+        "triage_by": "gemini-3.7-flash@semantic-differ-1",
+        "routed_to": [
+          "pricing"
+        ]
+      },
+      "prior_deltas": [],
+      "prior_claims": []
+    },
+    {
+      "name": "price_reversal_supersession",
+      "expected_action": "supersede_claim",
+      "repeat_expected_action": null,
+      "delta": {
+        "schema_version": "delta@2",
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H14",
+        "comparison_id": "sha256:b1966ceeca38c58aa5f43ecf2f808e1514485c01f4a5a9311a8ffa55b5bb50ae",
+        "entity": "claude_code",
+        "source": "website_changelog",
+        "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H15",
+        "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H16",
+        "computed_at": "2026-08-21T10:00:00Z",
+        "diff_kind": "semantic",
+        "generated_by": "gemini-3.7-flash@semantic-differ-1",
+        "prompt_version": "semantic-delta@2",
+        "changes": [
+          {
+            "category": "pricing",
+            "scope": "pricing",
+            "statement": "Claude Code Pro price fell from $79 to $59 per month on 2026-08-21.",
+            "before": "$79",
+            "after": "$59",
+            "evidence_before": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H15",
+              "quote": "$79"
+            },
+            "evidence_after": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H16",
+              "quote": "$59"
+            }
+          }
+        ],
+        "summary": "Claude Code Pro price fell from $79 to $59 per month on 2026-08-21.",
+        "triage": "meaningful",
+        "triage_reason": "Claude Code Pro price fell from $79 to $59 per month on 2026-08-21.",
+        "triage_by": "gemini-3.7-flash@semantic-differ-1",
+        "routed_to": [
+          "pricing"
+        ]
+      },
+      "prior_deltas": [
+        {
+          "schema_version": "delta@2",
+          "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H10",
+          "comparison_id": "sha256:40cbe0e98cb600dd901182c9c8aa8a2a3414da5f38131ebd1d5d72045c19443d",
+          "entity": "claude_code",
+          "source": "website_changelog",
+          "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H11",
+          "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H12",
+          "computed_at": "2026-08-20T10:00:00Z",
+          "diff_kind": "semantic",
+          "generated_by": "gemini-3.7-flash@semantic-differ-1",
+          "prompt_version": "semantic-delta@2",
+          "changes": [
+            {
+              "category": "pricing",
+              "scope": "pricing",
+              "statement": "Claude Code Pro price increased from $49 to $79 per month.",
+              "before": "$49",
+              "after": "$79",
+              "evidence_before": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H11",
+                "quote": "$49"
+              },
+              "evidence_after": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H12",
+                "quote": "$79"
+              }
+            }
+          ],
+          "summary": "Claude Code Pro price increased from $49 to $79 per month.",
+          "triage": "meaningful",
+          "triage_reason": "Claude Code Pro price increased from $49 to $79 per month.",
+          "triage_by": "gemini-3.7-flash@semantic-differ-1",
+          "routed_to": [
+            "pricing"
+          ]
+        }
+      ],
+      "prior_claims": [
+        {
+          "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5H13",
+          "entity": "claude_code",
+          "scope": "pricing",
+          "class": "fact",
+          "statement": "Claude Code Pro costs $79 per month as of 2026-08-20, up from $49.",
+          "rationale": "The increase directly affects coding-agent purchasing decisions.",
+          "confidence": "confirmed",
+          "severity": "critical",
+          "evidence": [
+            {
+              "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H10",
+              "source": "website_changelog",
+              "note": "Official price-page change."
+            }
+          ],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null,
+          "version": 1,
+          "created_at": "2026-08-20T10:00:00Z",
+          "last_verified_at": "2026-08-20T10:00:00Z",
+          "created_by": "analyst@1",
+          "history": []
+        }
+      ]
+    },
+    {
+      "name": "cross_source_fusion",
+      "expected_action": "create_claim",
+      "repeat_expected_action": null,
+      "delta": {
+        "schema_version": "delta@2",
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H27",
+        "comparison_id": "sha256:91657ca035270b00ed8ab29b8c62fa4757a4d8f5c4531d7366c27726d1ec0bd7",
+        "entity": "codex",
+        "source": "jobs_search",
+        "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H28",
+        "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H29",
+        "computed_at": "2026-08-20T11:00:00Z",
+        "diff_kind": "semantic",
+        "generated_by": "gemini-3.7-flash@semantic-differ-1",
+        "prompt_version": "semantic-delta@2",
+        "changes": [
+          {
+            "category": "other",
+            "scope": "team",
+            "statement": "Three new Rust engineering roles appeared for the Codex team on 2026-08-20.",
+            "before": "0",
+            "after": "3",
+            "evidence_before": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H28",
+              "quote": "0"
+            },
+            "evidence_after": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H29",
+              "quote": "3"
+            }
+          }
+        ],
+        "summary": "Three new Rust engineering roles appeared for the Codex team on 2026-08-20.",
+        "triage": "meaningful",
+        "triage_reason": "Three new Rust engineering roles appeared for the Codex team on 2026-08-20.",
+        "triage_by": "gemini-3.7-flash@semantic-differ-1",
+        "routed_to": [
+          "team"
+        ]
+      },
+      "prior_deltas": [
+        {
+          "schema_version": "delta@2",
+          "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H20",
+          "comparison_id": "sha256:5080c1737b83d1460a737b51bb997891211a90812b17121ba647b9bae3811681",
+          "entity": "codex",
+          "source": "community_search",
+          "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H22",
+          "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H23",
+          "computed_at": "2026-08-18T09:00:00Z",
+          "diff_kind": "semantic",
+          "generated_by": "gemini-3.7-flash@semantic-differ-1",
+          "prompt_version": "semantic-delta@2",
+          "changes": [
+            {
+              "category": "capability",
+              "scope": "product/capabilities",
+              "statement": "Community users repeatedly reported Codex latency problems.",
+              "before": null,
+              "after": "Repeated latency complaints",
+              "evidence_before": null,
+              "evidence_after": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H23",
+                "quote": "Repeated latency complaints"
+              }
+            }
+          ],
+          "summary": "Community users repeatedly reported Codex latency problems.",
+          "triage": "meaningful",
+          "triage_reason": "Community users repeatedly reported Codex latency problems.",
+          "triage_by": "gemini-3.7-flash@semantic-differ-1",
+          "routed_to": [
+            "product/capabilities"
+          ]
+        },
+        {
+          "schema_version": "delta@2",
+          "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H21",
+          "comparison_id": "sha256:0686100f78e1a255bcef8afde0ab5a16d658fae03c962627a8fb5a5c666fe480",
+          "entity": "codex",
+          "source": "github_issues",
+          "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H24",
+          "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H25",
+          "computed_at": "2026-08-19T09:00:00Z",
+          "diff_kind": "semantic",
+          "generated_by": "gemini-3.7-flash@semantic-differ-1",
+          "prompt_version": "semantic-delta@2",
+          "changes": [
+            {
+              "category": "capability",
+              "scope": "product/capabilities",
+              "statement": "Codex performance-related GitHub issues increased from 4 to 11.",
+              "before": "4",
+              "after": "11",
+              "evidence_before": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H24",
+                "quote": "4"
+              },
+              "evidence_after": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H25",
+                "quote": "11"
+              }
+            }
+          ],
+          "summary": "Codex performance-related GitHub issues increased from 4 to 11.",
+          "triage": "meaningful",
+          "triage_reason": "Codex performance-related GitHub issues increased from 4 to 11.",
+          "triage_by": "gemini-3.7-flash@semantic-differ-1",
+          "routed_to": [
+            "product/capabilities"
+          ]
+        }
+      ],
+      "prior_claims": [
+        {
+          "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5H26",
+          "entity": "codex",
+          "scope": "product/capabilities",
+          "class": "inference",
+          "inference_kind": "present_state",
+          "statement": "Codex users are experiencing recurring performance problems as of 2026-08-19.",
+          "rationale": "Independent community and issue-tracker signals point to a persistent performance concern.",
+          "confidence": "likely",
+          "severity": "notable",
+          "evidence": [
+            {
+              "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H20",
+              "source": "community_search",
+              "note": "Repeated community latency complaints."
+            },
+            {
+              "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H21",
+              "source": "github_issues",
+              "note": "Performance issue count rose from 4 to 11."
+            }
+          ],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null,
+          "version": 1,
+          "created_at": "2026-08-19T09:05:00Z",
+          "last_verified_at": "2026-08-19T09:05:00Z",
+          "created_by": "analyst@1",
+          "history": []
+        }
+      ]
+    },
+    {
+      "name": "boring_tutorial_no_action",
+      "expected_action": "no_action",
+      "repeat_expected_action": null,
+      "delta": {
+        "schema_version": "delta@2",
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H30",
+        "comparison_id": "sha256:1ae0ffeab0cc3aaf2701803b5323c5d9bacbcdf6263d42e54544f7191a323e00",
+        "entity": "gemini_cli",
+        "source": "website_changelog",
+        "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H31",
+        "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H32",
+        "computed_at": "2026-08-20T12:00:00Z",
+        "diff_kind": "semantic",
+        "generated_by": "gemini-3.7-flash@semantic-differ-1",
+        "prompt_version": "semantic-delta@2",
+        "changes": [
+          {
+            "category": "positioning",
+            "scope": "gtm",
+            "statement": "Gemini CLI published a beginner hello-world tutorial using existing features; no capability, pricing, roadmap, positioning, team, or traction changed.",
+            "before": null,
+            "after": "Beginner tutorial using existing commands",
+            "evidence_before": null,
+            "evidence_after": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H32",
+              "quote": "Beginner tutorial using existing commands"
+            }
+          }
+        ],
+        "summary": "Gemini CLI published a beginner hello-world tutorial using existing features; no capability, pricing, roadmap, positioning, team, or traction changed.",
+        "triage": "meaningful",
+        "triage_reason": "Gemini CLI published a beginner hello-world tutorial using existing features; no capability, pricing, roadmap, positioning, team, or traction changed.",
+        "triage_by": "gemini-3.7-flash@semantic-differ-1",
+        "routed_to": [
+          "gtm"
+        ]
+      },
+      "prior_deltas": [],
+      "prior_claims": []
+    },
+    {
+      "name": "third_party_dispute",
+      "expected_action": "create_claim",
+      "repeat_expected_action": null,
+      "delta": {
+        "schema_version": "delta@2",
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H44",
+        "comparison_id": "sha256:e1a3361532cf324ccd1951eca612b4069ad352008cdfba4226779852e5fa003e",
+        "entity": "codex",
+        "source": "search",
+        "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H45",
+        "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H46",
+        "computed_at": "2026-08-20T13:00:00Z",
+        "diff_kind": "semantic",
+        "generated_by": "gemini-3.7-flash@semantic-differ-1",
+        "prompt_version": "semantic-delta@2",
+        "changes": [
+          {
+            "category": "availability",
+            "scope": "traction",
+            "statement": "A single unverified search result claims Codex will shut down next month; no primary source confirms it.",
+            "before": null,
+            "after": "Anonymous post says Codex will shut down next month",
+            "evidence_before": null,
+            "evidence_after": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H46",
+              "quote": "Anonymous post says Codex will shut down next month"
+            }
+          }
+        ],
+        "summary": "A single unverified search result claims Codex will shut down next month; no primary source confirms it.",
+        "triage": "meaningful",
+        "triage_reason": "A single unverified search result claims Codex will shut down next month; no primary source confirms it.",
+        "triage_by": "gemini-3.7-flash@semantic-differ-1",
+        "routed_to": [
+          "traction"
+        ]
+      },
+      "prior_deltas": [
+        {
+          "schema_version": "delta@2",
+          "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H40",
+          "comparison_id": "sha256:687b77708f559f8bfc32b72796d298ac3a541e7bf4cc4b34c9d19e7ca2792940",
+          "entity": "codex",
+          "source": "github_releases",
+          "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H41",
+          "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H42",
+          "computed_at": "2026-08-19T13:00:00Z",
+          "diff_kind": "semantic",
+          "generated_by": "gemini-3.7-flash@semantic-differ-1",
+          "prompt_version": "semantic-delta@2",
+          "changes": [
+            {
+              "category": "availability",
+              "scope": "traction",
+              "statement": "Codex official releases increased from two to five in the latest week.",
+              "before": "2",
+              "after": "5",
+              "evidence_before": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H41",
+                "quote": "2"
+              },
+              "evidence_after": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H42",
+                "quote": "5"
+              }
+            }
+          ],
+          "summary": "Codex official releases increased from two to five in the latest week.",
+          "triage": "meaningful",
+          "triage_reason": "Codex official releases increased from two to five in the latest week.",
+          "triage_by": "gemini-3.7-flash@semantic-differ-1",
+          "routed_to": [
+            "traction"
+          ]
+        }
+      ],
+      "prior_claims": [
+        {
+          "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5H43",
+          "entity": "codex",
+          "scope": "traction",
+          "class": "fact",
+          "statement": "Codex is actively maintained, with five official releases in the week ending 2026-08-19.",
+          "rationale": "Sustained official release activity is a strong operational signal for competitive positioning.",
+          "confidence": "confirmed",
+          "severity": "critical",
+          "evidence": [
+            {
+              "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H40",
+              "source": "github_releases",
+              "note": "Official release cadence increased to five per week."
+            }
+          ],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null,
+          "version": 1,
+          "created_at": "2026-08-19T13:05:00Z",
+          "last_verified_at": "2026-08-19T13:05:00Z",
+          "created_by": "analyst@1",
+          "history": []
+        }
+      ]
+    },
+    {
+      "name": "primary_source_dispute_resolution",
+      "expected_action": "supersede_claim",
+      "repeat_expected_action": null,
+      "delta": {
+        "schema_version": "delta@2",
+        "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H50",
+        "comparison_id": "sha256:86dd258a6de647a56db64ae52b55b9b033e8439e4e0e246e25b335b1c5a10f31",
+        "entity": "codex",
+        "source": "website_changelog",
+        "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H51",
+        "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H52",
+        "computed_at": "2026-08-21T13:00:00Z",
+        "diff_kind": "semantic",
+        "generated_by": "gemini-3.7-flash@semantic-differ-1",
+        "prompt_version": "semantic-delta@2",
+        "changes": [
+          {
+            "category": "availability",
+            "scope": "traction",
+            "statement": "The official Codex changelog states on 2026-08-21 that Codex remains actively developed and is not shutting down.",
+            "before": null,
+            "after": "Codex is actively developed and we are not going anywhere",
+            "evidence_before": null,
+            "evidence_after": {
+              "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H52",
+              "quote": "Codex is actively developed and we are not going anywhere"
+            }
+          }
+        ],
+        "summary": "The official Codex changelog states on 2026-08-21 that Codex remains actively developed and is not shutting down.",
+        "triage": "meaningful",
+        "triage_reason": "The official Codex changelog states on 2026-08-21 that Codex remains actively developed and is not shutting down.",
+        "triage_by": "gemini-3.7-flash@semantic-differ-1",
+        "routed_to": [
+          "traction"
+        ]
+      },
+      "prior_deltas": [
+        {
+          "schema_version": "delta@2",
+          "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H40",
+          "comparison_id": "sha256:687b77708f559f8bfc32b72796d298ac3a541e7bf4cc4b34c9d19e7ca2792940",
+          "entity": "codex",
+          "source": "github_releases",
+          "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H41",
+          "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H42",
+          "computed_at": "2026-08-19T13:00:00Z",
+          "diff_kind": "semantic",
+          "generated_by": "gemini-3.7-flash@semantic-differ-1",
+          "prompt_version": "semantic-delta@2",
+          "changes": [
+            {
+              "category": "availability",
+              "scope": "traction",
+              "statement": "Codex official releases increased from two to five in the latest week.",
+              "before": "2",
+              "after": "5",
+              "evidence_before": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H41",
+                "quote": "2"
+              },
+              "evidence_after": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H42",
+                "quote": "5"
+              }
+            }
+          ],
+          "summary": "Codex official releases increased from two to five in the latest week.",
+          "triage": "meaningful",
+          "triage_reason": "Codex official releases increased from two to five in the latest week.",
+          "triage_by": "gemini-3.7-flash@semantic-differ-1",
+          "routed_to": [
+            "traction"
+          ]
+        },
+        {
+          "schema_version": "delta@2",
+          "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H44",
+          "comparison_id": "sha256:e1a3361532cf324ccd1951eca612b4069ad352008cdfba4226779852e5fa003e",
+          "entity": "codex",
+          "source": "search",
+          "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5H45",
+          "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5H46",
+          "computed_at": "2026-08-20T13:00:00Z",
+          "diff_kind": "semantic",
+          "generated_by": "gemini-3.7-flash@semantic-differ-1",
+          "prompt_version": "semantic-delta@2",
+          "changes": [
+            {
+              "category": "availability",
+              "scope": "traction",
+              "statement": "A single unverified search result claims Codex will shut down next month.",
+              "before": null,
+              "after": "Anonymous post says Codex will shut down next month",
+              "evidence_before": null,
+              "evidence_after": {
+                "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5H46",
+                "quote": "Anonymous post says Codex will shut down next month"
+              }
+            }
+          ],
+          "summary": "A single unverified search result claims Codex will shut down next month.",
+          "triage": "meaningful",
+          "triage_reason": "A single unverified search result claims Codex will shut down next month.",
+          "triage_by": "gemini-3.7-flash@semantic-differ-1",
+          "routed_to": [
+            "traction"
+          ]
+        }
+      ],
+      "prior_claims": [
+        {
+          "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5H43",
+          "entity": "codex",
+          "scope": "traction",
+          "class": "fact",
+          "statement": "Codex is actively maintained, with five official releases in the week ending 2026-08-19.",
+          "rationale": "Sustained official release activity is a strong operational signal for competitive positioning.",
+          "confidence": "confirmed",
+          "severity": "critical",
+          "evidence": [
+            {
+              "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H40",
+              "source": "github_releases",
+              "note": "Official release cadence increased to five per week."
+            }
+          ],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null,
+          "version": 1,
+          "created_at": "2026-08-19T13:05:00Z",
+          "last_verified_at": "2026-08-19T13:05:00Z",
+          "created_by": "analyst@1",
+          "history": []
+        },
+        {
+          "claim_id": "clm_01ARZ3NDEKTSV4RRFFQ69G5H47",
+          "entity": "codex",
+          "scope": "traction",
+          "class": "inference",
+          "inference_kind": "intent_or_future",
+          "statement": "A third-party signal claims Codex may shut down after August 2026.",
+          "rationale": "The unverified shutdown signal conflicts with established official release activity and warrants monitoring.",
+          "confidence": "speculative",
+          "severity": "critical",
+          "evidence": [
+            {
+              "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5H44",
+              "source": "search",
+              "note": "Anonymous shutdown rumor appeared in search."
+            }
+          ],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null,
+          "disputes": "clm_01ARZ3NDEKTSV4RRFFQ69G5H43",
+          "version": 1,
+          "created_at": "2026-08-20T13:00:00Z",
+          "last_verified_at": "2026-08-20T13:00:00Z",
+          "created_by": "gemini-analyst@1",
+          "history": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": "delta@2",
+  "delta_id": "dlt_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+  "comparison_id": "sha256:8f84ee0a251280bb3a853c4de09848af0d2da6d5ae2a9de54b8729455ed7bd79",
+  "entity": "claude_code",
+  "source": "github_releases",
+  "obs_before": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "obs_after": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+  "computed_at": "2026-08-20T02:03:11Z",
+  "diff_kind": "semantic",
+  "generated_by": "gemini-3.7-flash@semantic-differ-1",
+  "prompt_version": "semantic-delta@2",
+  "changes": [
+    {
+      "category": "capability",
+      "scope": "product/capabilities",
+      "statement": "Claude Code published release v2.1.237 with a durable user-facing change.",
+      "before": null,
+      "after": "{\"tag_name\":\"v2.1.237\",\"name\":\"v2.1.237\"}",
+      "evidence_before": null,
+      "evidence_after": {
+        "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "quote": "v2.1.237"
+      }
+    }
+  ],
+  "summary": "Claude Code published release v2.1.237 with a durable user-facing change.",
+  "triage": "meaningful",
+  "triage_reason": "The fixture represents a grounded semantic change.",
+  "triage_by": "gemini-3.7-flash@semantic-differ-1",
+  "routed_to": ["product/capabilities"]
+}

@@ -1,0 +1,84 @@
+#+TITLE: Semantic Delta Model Bake-off
+#+DATE: 2026-08-25
+#+STARTUP: overview
+
+* Question
+Can a Google model compare real before/after observations and produce one useful,
+grounded Delta more reliably than the current generic Python path/line differ?
+
+This was an isolated experiment. It did not modify BigQuery, claims, acquisition,
+Agent Runtime, or production routing.
+
+* Models and current global pricing
+| Model | Input / 1M tokens | Output / 1M tokens | Note |
+|---+---:|---:|---|
+| =gemma-4-26b-a4b-it-maas= | $0.15 | $0.60 | Experimental MaaS |
+| =gemini-3.5-flash-lite= | $0.30 | $2.50 | Current Tycho analyst model |
+| =gemini-3.7-flash= | $0.75 | $3.75 | Introductory price through 2026-12-31 |
+
+Gemini 3.7 Flash rises to $1.50 input / $7.50 output on 2027-01-01.
+Its promotional price is cheaper than full Gemini 3.5 Flash, not cheaper than
+Gemini 3.5 Flash-Lite.
+
+Official pricing source:
+https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing
+
+* Inputs
+All models received the same normalized before/after observation snapshots from
+Cloud Storage, not the existing broken Delta output. The prompt rejected version
+publication, rolling-window disappearance, navigation, routine fixes, and
+nightly/alpha churn. Every accepted change required an exact source quote.
+
+Four production examples were used:
+
+1. Pi GitHub v0.84.3, with a content-rich release body.
+2. Codex changelog announcing MCP server command deprecation.
+3. Gemini CLI nightly/preview churn containing routine fixes.
+4. Pi rolling changelog page changing from 0.84.2 to 0.84.3.
+
+Reproducible runner: =experiments/semantic_delta_bakeoff.py=
+Raw bounded report: =data/semantic_delta_bakeoff.json=
+
+* Results
+| Model | Required schema | Quote grounding | Codex deprecation | Nightly rejected | Four-case cost |
+|---+---+---+---+---+---:|
+| Gemma 4 | 0/4 | 2/4 | Missed | No | $0.032469 |
+| Gemini 3.5 Flash-Lite | 4/4 | 4/4 | Found | No | $0.067521 |
+| Gemini 3.7 Flash | 4/4 | 4/4 | Found | Yes | $0.167543 |
+
+The complete successful three-model run cost approximately $0.27. The initial
+3.7 requests rejected with HTTP 400 because =MINIMAL= thinking is unsupported;
+Google does not charge non-200 model requests. Rerunning with =LOW= thinking
+succeeded.
+
+** Gemma 4
+Gemma found many Pi release details cheaply, but did not honor the declared JSON
+schema in any of the four real cases. It returned incompatible field names,
+omitted required status/summary/reason fields, over-admitted nightly fixes, and
+classified the clear Codex deprecation as noise. It is not suitable as the
+canonical semantic differ in its current experimental MaaS form.
+
+** Gemini 3.5 Flash-Lite
+Flash-Lite followed the schema and grounded all quotes. It correctly extracted
+the Codex deprecation and useful Pi capabilities, but promoted routine Gemini
+nightly fixes into durable changes. This is the same over-admission behavior that
+currently pollutes Tycho claims.
+
+** Gemini 3.7 Flash
+3.7 followed the schema, grounded every quote, extracted richer Pi changes
+(including atomic managed updates), found the Codex deprecation, and was the only
+model to classify the Gemini nightly as noise. At Tycho's four-entity daily
+volume, the observed quality gain is worth the small absolute cost.
+
+* Provisional conclusion
+Use =gemini-3.7-flash= as the leading candidate for semantic Delta generation.
+Keep =gemini-3.5-flash-lite= for bounded fact maintenance where the input is
+already clean. Do not use Gemma as the canonical semantic differ based on this
+trial; a simple binary prefilter could be tested later only if it removes enough
+3.7 calls to justify another model stage.
+
+Do not implement the pipeline from four examples alone. Next create a manually
+labeled corpus from the 36 historical cloud observation pairs, including expected
+meaningful changes and expected noise. Run 3.7 against that corpus and set a
+precision-first acceptance threshold before changing =docs/tycho-spec.org= or
+production.

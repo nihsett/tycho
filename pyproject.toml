@@ -1,0 +1,31 @@
+[project]
+name = "tycho-intel"
+version = "0.1.0"
+description = "Competitive intelligence fleet with claim-based memory"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "google-adk>=2.7,<3",
+  "google-cloud-aiplatform[adk,agent-engines]>=1.144,<2",
+  "google-cloud-bigquery>=3.25,<4",
+  "google-cloud-firestore>=2.19,<3",
+  "google-cloud-pubsub>=2.25,<3",
+  "google-cloud-storage>=2.18,<4",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.42,<2",
+  "opentelemetry-instrumentation-google-genai>=0.4b0,<1",
+  "opentelemetry-instrumentation-vertexai>=2.0b0,<3",
+  "pydantic>=2.10,<3",
+  "python-dotenv>=1.0,<2",
+  "pyyaml>=6.0,<7",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff==0.15.14",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["."]
+testpaths = ["tests"]

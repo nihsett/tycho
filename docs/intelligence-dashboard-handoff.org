@@ -1,0 +1,309 @@
+#+TITLE: Tycho Intelligence Dashboard — Luna Handoff
+#+DATE: 2026-08-26
+#+STARTUP: overview
+
+* Outcome
+Build one polished, deployable dashboard that makes Tycho's existing fleet and
+new strategic workflow understandable in under one minute.
+
+The dashboard answers four questions:
+1. What changed across competitors?
+2. What does Tycho currently believe?
+3. What strategic conclusions survived challenge?
+4. Exactly which evidence caused each conclusion or belief change?
+
+Do not build a generic chatbot, admin console, data explorer, or design system.
+
+* Start gate
+Begin only after:
+- =docs/gemini-delta-backlog-repair-handoff.org= is complete;
+- =docs/strategic-agent-fleet-handoff.org= is complete;
+- canonical Deltas are v2-only;
+- no active claim cites legacy evidence;
+- at least one persisted strategy session/brief exists, even if it contains zero
+  passed cards.
+
+* Read first
+Read completely:
+1. =docs/tycho-spec.org=.
+2. =docs/architecture.md=.
+3. =docs/strategic-agent-fleet-handoff.org= and its evidence document.
+4. Claim, Delta, StrategySession, Brief, and backend schemas.
+5. Google ADK Deep Search sample frontend, especially
+   =ActivityTimeline.tsx= and its SSE event handling. Borrow interaction
+   patterns, not styling or unsafe function-argument display.
+
+Update spec/architecture before contradictory code.
+
+* User experience
+One page, desktop-first but responsive. Use plain language in the UI.
+
+** Header
+- Tycho name and one-line promise: =Competitive intelligence that shows why its
+  beliefs changed.= 
+- Fleet health: acquisition, Analyst, Strategy Council, last successful run.
+- One primary button: =Run Strategy Session=.
+
+** Competitor overview
+Four cards: Claude Code, Codex, Gemini CLI, and Pi.
+
+Each card shows only:
+- latest meaningful canonical change;
+- active verified fact count;
+- last observed/verified time;
+- one current notable claim;
+- stale/disputed indicator when applicable.
+
+Clicking opens the entity timeline, not a chat window.
+
+** Belief timeline
+A chronological list of claim lifecycle events:
+- created;
+- verified;
+- disputed;
+- superseded;
+- retired.
+
+Show old and replacement statements together for supersession. Every event pins
+=(claim_id, version)=. Filters: entity and ontology scope only.
+
+** Strategy brief
+Show the latest reproducible brief:
+- What changed;
+- What Tycho concludes;
+- Counter-signals;
+- What would change our mind.
+
+Each conclusion displays confidence, affected entities, Challenger result, and
+premise chips. Rejected strategy cards are available under a collapsed
+=Rejected by Challenger= section with concise reasons.
+
+** Agent activity
+A compact timeline for the selected acquisition/analysis/strategy run:
+- =Gemini Differ classified change meaningful/noise=;
+- =Analyst created/superseded/no-action=;
+- =Strategist proposed N cards=;
+- =Challenger passed/rejected N=;
+- =Brief Writer finalized brief=.
+
+Display safe structural events only. Never display hidden thoughts, prompts,
+model responses, tool arguments, raw source content, tokens, credentials, or
+stack traces.
+
+** Provenance drawer
+Clicking any claim/premise opens a right-side drawer:
+1. Current claim and exact version.
+2. Lifecycle history and supersession links.
+3. Evidence Delta summary, category, source, and observation timestamps.
+4. Exact grounded quote already stored in the canonical Delta.
+5. Observation IDs and source URL/repository metadata.
+
+Do not fetch or render arbitrary raw GCS payloads in V1. The canonical grounded
+quote is enough for the demo and avoids exposing untrusted source content.
+
+* Technical shape
+Create:
+- =dashboard/frontend/= — React, TypeScript, Vite;
+- =dashboard/api/= — small Python FastAPI service;
+- one Cloud Run service =tycho-dashboard= serving the built frontend and
+  authenticated API.
+
+Use the repository's Python dependency management. Pin new frontend dependencies.
+Avoid a large UI framework. Tailwind plus a small accessible component set is
+acceptable.
+
+The browser never receives Google credentials and never talks directly to
+Firestore, BigQuery, Agent Runtime, or Pub/Sub. The API uses its Cloud Run
+service account.
+
+* API contracts
+Return strict, bounded response schemas. Suggested endpoints:
+
+- =GET /api/health=
+  Fleet component status and last successful timestamps.
+- =GET /api/overview=
+  Four entity cards plus current counts.
+- =GET /api/entities/{entity}/timeline?scope=&limit==
+  Pinned claim lifecycle events.
+- =GET /api/claims/{claim_id}/versions/{version}/provenance=
+  Claim, lifecycle links, canonical Delta metadata, and grounded quotes.
+- =GET /api/strategy/sessions/latest=
+  Latest session, passed/rejected cards, and brief.
+- =GET /api/strategy/sessions/{session_id}/events=
+  Safe normalized agent activity events.
+- =POST /api/strategy/sessions=
+  Trigger the fixed bounded strategy session; returns =202= and session ID.
+- =GET /api/strategy/sessions/{session_id}/stream=
+  SSE safe event stream until completion.
+
+Validate entity/scope/ID enums and cap limits server-side. Return 404 for unknown
+resources and generic bounded errors. No arbitrary query text or free-form model
+prompt endpoint.
+
+* Backend read model
+Add explicit read/query methods rather than embedding database queries in route
+handlers.
+
+Rules:
+- canonical =delta@2= table only;
+- exact claim version/history reconstruction;
+- no archived legacy Delta access;
+- no raw GCS access;
+- active/stale/disputed counts computed deterministically;
+- strategy/brief data loaded by immutable IDs;
+- stable ordering and pagination;
+- bounded cache for overview/health only; never cache an in-progress strategy
+  event stream as completed.
+
+The dashboard service account receives read-only BigQuery/Firestore permissions
+plus permission to invoke the private Strategy dispatcher. It cannot write
+claims/Deltas, publish Pub/Sub, read GCS, or invoke the Analyst Runtime directly.
+
+* Strategy trigger
+The Run button starts only the fixed strategy workflow. It cannot change system
+prompts, agent models, evidence policy, or scope.
+
+Behavior:
+1. POST returns a session ID immediately.
+2. UI opens SSE for safe progress events.
+3. Duplicate click uses the strategy lease and returns the same session.
+4. On failure, show a short failure class and retry option; do not expose model
+   or source text.
+5. On completion, refresh the Strategy Brief panel and activity timeline.
+
+No automatic alert/Slack/email delivery.
+
+* Frontend structure
+Keep components small and named by product concepts:
+- =FleetHealthBar=
+- =CompetitorGrid= and =CompetitorCard=
+- =BeliefTimeline=
+- =StrategyBrief=
+- =StrategyCard=
+- =AgentActivityTimeline=
+- =ProvenanceDrawer=
+- =RunStrategyButton=
+
+Use a single typed API client. No =any= in application event/provenance types.
+SSE events use a closed enum, for example:
+=run_started|agent_started|agent_completed|card_rejected|brief_completed|run_failed=.
+
+Borrow from Deep Search:
+- session-aware SSE consumption;
+- progressive activity timeline;
+- collapsible completed activity;
+- clear loading/empty/error states.
+
+Do not borrow:
+- console logging of complete SSE events;
+- rendering function arguments/responses;
+- generic chat transcript;
+- website-count gimmicks;
+- dark styling verbatim.
+
+* Visual direction
+Make provenance the visual identity.
+
+Use:
+- calm neutral background;
+- one color per lifecycle state, not per agent;
+- compact typography and generous spacing;
+- confidence labels written as words, never fake percentages;
+- visible links connecting replacement claims in the timeline;
+- evidence chips that open the provenance drawer;
+- no animated agent avatars, fake typing, gradients, or decorative charts.
+
+The dashboard must still be understandable when no new meaningful Delta or no
+strategy card exists. Empty states should explain what Tycho is waiting for.
+
+* Demo path
+Optimize one deterministic demo sequence:
+1. Landing page shows four healthy watchers and current claims.
+2. Open a competitor and show one claim supersession/evidence chain.
+3. Open the latest Strategy Brief and inspect a passed conclusion's premises.
+4. Expand a rejected card to show Challenger enforcement.
+5. Click Run Strategy Session; watch three named agents progress through SSE.
+6. Open the resulting brief and provenance drawer.
+
+Do not make the demo depend on a fresh competitor release. Use existing clean
+canonical claims and the latest stored brief. The live Run button is an added
+proof, not the only usable demo state.
+
+* Security and privacy
+- Private Cloud Run by default, protected with IAP or explicit demo-user access.
+- No secrets in frontend bundles.
+- CSP, secure headers, strict CORS/same-origin policy, and bounded request bodies.
+- Escape rendered Markdown; disallow raw HTML.
+- Grounded quotes are untrusted text and must never execute markup/scripts.
+- Redact request/response bodies from persisted traces/logs.
+- API logs contain route, status, latency, safe IDs, and counts only.
+- Browser 403 without approved identity is expected.
+
+* Tests
+Backend:
+- API schema/ID/scope validation;
+- canonical-v2-only provenance;
+- exact claim-version reconstruction;
+- stale/disputed/superseded timeline behavior;
+- strategy trigger deduplication;
+- bounded pagination and errors;
+- no GCS/archive/claim-write permissions or calls;
+- redacted logs/traces.
+
+Frontend:
+- entity cards and empty states;
+- supersession timeline;
+- passed/rejected strategy cards;
+- provenance drawer keyboard/focus behavior;
+- SSE event ordering, reconnect, duplicate events, completion, and failure;
+- Markdown sanitization;
+- responsive layout and basic accessibility.
+
+End-to-end:
+- load production read-only overview;
+- trigger one strategy session;
+- observe safe events;
+- render stored brief;
+- click claim -> Delta -> Observation metadata provenance;
+- verify no production claim/Delta mutation from dashboard reads.
+
+* Deployment
+Deploy =tycho-dashboard= separately. Do not modify acquisition, Analyst,
+Strategy Runtime, Scheduler jobs, or =tycho-analyst-push=.
+
+Record/read back:
+- image digest and revision;
+- service account and IAM;
+- IAP/access policy;
+- Strategy dispatcher invocation permission;
+- health response;
+- persisted trace/log redaction;
+- min/max instance settings and URL.
+
+Use explicit project/region flags and do not change global =gcloud= settings.
+
+* Evidence updates
+Update:
+- =docs/architecture.md=
+- =handoff.org=
+- submission/demo section of =README.md=.
+
+Create =docs/intelligence-dashboard-evidence.org= with screenshots checklist,
+resource IDs, API/UI test result, deployed URL/access method, demo sequence, and
+redaction evidence. Do not put credentials or model/source payloads in it.
+
+* Definition of done
+- One deployed page clearly shows competitors, beliefs, strategy, agents, and
+  provenance.
+- Every displayed strategic conclusion resolves to exact claim versions and
+  canonical Gemini Deltas.
+- Passed and rejected Challenger outcomes are visible.
+- Run Strategy Session streams safe progress and is duplicate-safe.
+- No generic chat or arbitrary prompting exists.
+- Browser has no cloud credentials or direct database access.
+- Dashboard cannot mutate claims/Deltas or read raw/archive data.
+- Full backend/frontend/end-to-end tests pass.
+- The six-step demo works without waiting for new external data.
+
+Stop after deployment evidence and demo readiness. Do not add recommendations,
+scenario simulation, Slack, Q&A, RSS/search, or more agents in this task.

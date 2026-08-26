@@ -1,0 +1,11 @@
+{
+  "obs_id": "obs_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "entity": "claude_code",
+  "source": "github_releases",
+  "kind": "structured",
+  "fetched_at": "2026-08-20T02:00:00Z",
+  "content_ref": "gs://tycho-raw/claude_code/github_releases/01ARZ3NDEKTSV4RRFFQ69G5FAV.json",
+  "content_hash": "sha256:8f14e45fceea167a5a36dedd4bea2543f6f5f8f70f4ca2b63f9c5f8f84f7d9b1",
+  "adapter_ver": "github@1",
+  "status": "ok"
+}

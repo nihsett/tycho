@@ -1,0 +1,223 @@
+#+TITLE: Tycho Agent Runtime Production-Shadow Evidence
+#+DATE: 2026-08-25
+#+STARTUP: overview
+
+* Scope
+
+This document records the Agent Runtime migration through shadow validation,
+live preparation, and production routing cutover. At 2026-08-25T14:17:59Z the
+existing production Pub/Sub subscription was moved to the authenticated Runtime
+dispatcher. The old Cloud Run analyst remains deployed as the rollback target.
+The first natural post-cutover meaningful batch was validated on 2026-08-26:
+five live Runtime runs completed five governed claim actions with redacted traces.
+
+* Target topology
+
+#+begin_example
+Cloud Scheduler -> Cloud Run tycho-acquire -> BigQuery/GCS -> Pub/Sub
+                                                        |
+                                                        v
+                                  Cloud Run tycho-analyst-dispatcher
+                                  validates envelope; sends delta_id only
+                                                        |
+                                                        v
+                                  Agent Runtime Tycho Analyst
+                                  existing ADK run_analyst path
+                                                        |
+                                                        v
+                                  Firestore claims / analyst_runs / leases
+#+end_example
+
+No outer Gemini agent was added. The Agent Runtime wrapper is a deterministic
+ADK =BaseAgent= that calls the existing =pipeline.gemini_analyst.run_analyst=
+function. Memory Bank is deliberately disabled; Firestore claims remain the
+authoritative institutional memory.
+
+* Resources
+
+| Resource | Value |
+|---+---|
+| Project | =gen-lang-client-0110801105= / =548847028907= |
+| Region | =us-central1= |
+| Agent Runtime | =projects/548847028907/locations/us-central1/reasoningEngines/8577815225082839040= |
+| Runtime display name | =Tycho Analyst= |
+| Registry entry | =projects/gen-lang-client-0110801105/locations/us-central1/agents/agentregistry-00000000-0000-0000-17b9-6a1a1f2382cc= |
+| Runtime identity | =agents.global.proj-548847028907.system.id.goog/resources/aiplatform/projects/548847028907/locations/us-central1/reasoningEngines/8577815225082839040= |
+| Runtime staging bucket | =gs://gen-lang-client-0110801105-tycho-agent-staging= |
+| Dispatcher service | =tycho-analyst-dispatcher= |
+| Dispatcher URL | =https://tycho-analyst-dispatcher-u2s544lf5a-uc.a.run.app= |
+| Dispatcher service account | =tycho-agent-dispatcher@gen-lang-client-0110801105.iam.gserviceaccount.com= |
+| Old live subscription | =tycho-analyst-push= |
+| Old live endpoint | =https://tycho-analyst-u2s544lf5a-uc.a.run.app= |
+| Shadow subscription | Not created; no ongoing duplicate traffic |
+
+Runtime configuration is =min_instances=0=, =max_instances=1=,
+=identity_type=AGENT_IDENTITY=, model =gemini-3.5-flash-lite=, analyst version
+=gemini-analyst@1=, and =TYCHO_ANALYST_MODE=live=. The production subscription
+now routes through the dispatcher to this Runtime.
+
+* IAM
+
+The managed Runtime Agent Identity has these explicit project roles only:
+
+- =roles/datastore.user=
+- =roles/bigquery.dataViewer=
+- =roles/bigquery.jobUser=
+- =roles/telemetry.tracesWriter=
+
+The dispatcher service account has:
+
+- =roles/aiplatform.viewer= for Runtime query invocation;
+- =roles/logging.logWriter=;
+- =roles/run.invoker= on the dispatcher service itself.
+
+The Google-managed Pub/Sub service agent has
+=roles/iam.serviceAccountTokenCreator= on this dispatcher service account only.
+This lets Pub/Sub mint the OIDC token whose identity and audience Cloud Run
+validates after cutover.
+
+The Runtime identity has no GCS or Pub/Sub roles. The dispatcher never writes
+claims and sends only a validated =delta_id=.
+
+Agent Identity uses certificate-bound credentials. The Runtime deployment sets
+=GOOGLE_API_USE_CLIENT_CERTIFICATE=true= and =GOOGLE_API_USE_MTLS_ENDPOINT=always=.
+Tycho explicitly constructs Firestore's mTLS gRPC transport because the pinned
+high-level client otherwise targets the non-mTLS endpoint.
+
+* Validation evidence
+
+** Repository checks
+
+- =uv run pytest=: =54 passed=.
+- =uv run python -m compileall -q adapters schemas pipeline infra runtime_agent=.
+- The packaged =runtime_agent.app= is an =AdkApp= containing the custom
+  request-scoped wrapper and serializes with cloudpickle.
+- Lease tests cover active duplicate delivery, completed skip, failed retry, and
+  expired retry.
+- Dispatcher tests cover Pub/Sub envelope validation and bounded results.
+- Trace tests prove unsafe LLM request/response attributes and events are removed.
+
+** Direct Runtime shadow flow
+
+The first real shadow invocation completed:
+
+- Delta: =dlt_01M0VAH4P2AV1WG9G6B5958TSC=
+- Run: =run_01M0WCYN75E1B7384B60A8XSTH=
+- Mode: =shadow=
+- Accepted action count: =1=
+- Firestore claim count before/after: =22 / 22=
+- Lease: =completed=, attempt =1=
+
+A repeat invocation returned =skipped= because the durable lease was already
+completed. This proves redelivery does not call Gemini again.
+
+** Direct Trace inspection
+
+Cloud Trace v1 was listed with a =span:tycho= filter and the selected trace was
+then retrieved directly by trace ID. Trace:
+
+=42a0cc2ac45863d1bd678c65be8cce22=
+
+Observed spans include:
+
+- =invoke_workflow tycho_analyst_runtime=
+- =invoke_agent tycho_analyst_runtime=
+- =tycho.analyze_delta=
+- =invoke_workflow tycho_analyst=
+- =invoke_agent tycho_analyst=
+- =call_llm=
+- =generate_content gemini-3.5-flash-lite=
+- =execute_tool create_claim=
+- second LLM/generation span;
+- =execute_tool finish_task=.
+
+Unsafe fields found: none. In particular, persisted trace data contains no
+=gcp.vertex.agent.llm_request=, =gcp.vertex.agent.llm_response=, prompt,
+delta-change, or claim-text fields.
+
+** Dispatcher integration
+
+An authenticated Pub/Sub-shaped POST was sent to the deployed dispatcher:
+
+- Delta: =dlt_01M0VAH1ZKXR86JKD5JGERV5MD=
+- HTTP result: =204=
+- Shadow run: =run_01M0WEBWWW9KGQF1DY8H3J1Y3T=
+- Accepted action count: =1=
+- Claim count before/after: =22 / 22=
+- Dispatcher log: =POST / HTTP/1.1 204=.
+
+This was a one-off integration check, not a live subscription. The optional
+=tycho-analyst-runtime-shadow= subscription remains absent.
+
+** First natural live Runtime batch
+
+The 2026-08-26 scheduled acquisition produced five meaningful legacy Deltas.
+All five reached the private dispatcher and completed as live Runtime runs:
+
+- Dispatcher result: five HTTP =204= responses.
+- Analyst runs: five =completed= =gemini-analyst@1= runs.
+- Actions: five =create_claim= actions.
+- Firestore claim count: =22 -> 27=.
+- One initial Runtime invocation returned =503= during cold start; Pub/Sub
+  retried it successfully and no delivery was lost.
+
+Cloud Trace list pagination returned six associated traces: five managed Runtime
+traces and one dispatcher HTTP trace. Each Runtime trace contains 11 structural
+spans, including =tycho.analyze_delta=, LLM/generation, =create_claim=, and
+=finish_task=. Direct inspection found no prompt, response, evidence, claim
+text, source content, or unsafe ADK message attributes. Safe labels contain only
+platform metadata, Tycho IDs/entity/source/mode/action/result, model name,
+finish reason, and token counts. Bounded evidence is stored in
+=data/runtime_natural_trace_inspection.json=.
+
+The claims were generated from legacy Deltas and expose the release-diary noise
+that semantic Delta shadowing is designed to remove; this transport validation
+did not rewrite them.
+
+* Production cutover and rollback
+
+The approved cutover changed the endpoint, push-auth service account, and OIDC
+audience together. A read-back confirmed all three fields. Agent Runtime is live,
+the dispatcher revision is healthy, and no immediate dispatcher delivery error
+appeared.
+
+Rollback keeps the same three fields coherent and restores the old Cloud Run
+analyst:
+
+#+begin_src bash
+gcloud pubsub subscriptions modify-push-config tycho-analyst-push \
+  --push-endpoint=https://tycho-analyst-u2s544lf5a-uc.a.run.app \
+  --push-auth-service-account=tycho-runtime@gen-lang-client-0110801105.iam.gserviceaccount.com \
+  --push-auth-token-audience=https://tycho-analyst-u2s544lf5a-uc.a.run.app \
+  --project=gen-lang-client-0110801105
+#+end_src
+
+The natural-delivery validation gate is complete. Keep the old service until a
+separate deletion is explicitly approved; it remains the one-operation rollback.
+
+Opening the private dispatcher URL in a browser also returns 403 by design; a
+browser has no approved Cloud Run identity token. The authenticated integration
+POST returned 204, which is the relevant health check.
+
+The production subscription now points at:
+
+=https://tycho-analyst-dispatcher-u2s544lf5a-uc.a.run.app=
+
+The cutover was performed manually after explicit approval. Deployment tooling
+now preserves an existing =tycho-analyst-push= route unless
+=--replace-analyst-push= is supplied explicitly. The old Cloud Run service and
+revision remain deployed as rollback.
+
+* Reproduction commands
+
+#+begin_src bash
+uv run pytest
+
+gcloud pubsub subscriptions describe tycho-analyst-push \
+  --project=gen-lang-client-0110801105 \
+  --format='value(pushConfig.pushEndpoint)'
+
+gcloud agent-registry agents list \
+  --project=gen-lang-client-0110801105 \
+  --location=us-central1
+#+end_src
