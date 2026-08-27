@@ -36,25 +36,29 @@ therefore proceed now, under these conditions:
 - no Agent Runtime deployment and no dashboard;
 - =data/tycho.sqlite3= and the main worktree are untouched.
 
-** Production gate — CLOSED
-Production deployment and live strategy runs remain blocked until all of the
-following are directly verified:
-- the physical BigQuery swap is complete: =tycho.deltas= is the fresh strict
-  v2-only table and the pre-migration table is archived as
-  =tycho.delta_audit_log_20260826=;
-- canonical =tycho.deltas= contains only Gemini =delta@2=;
-- no active claim cites legacy evidence;
-- production acquisition is Gemini-only;
-- the final post-swap read-backs pass: endpoint, identity, and audience of the
-  live route are unchanged, Scheduler is resumed and healthy, and Runtime
-  routing is healthy;
+** Production gate — OPEN and satisfied (2026-08-26)
+Every condition was re-verified directly, read-only, immediately before
+deploying. The full readback is in =docs/strategic-agent-fleet-evidence.org=
+under =Production gate, re-verified read-only before deploying=:
+- the physical BigQuery swap is complete: canonical =tycho.deltas= holds 50
+  strict =delta@2= rows and the pre-migration table is archived as
+  =tycho.delta_audit_log_20260826= with all 96 original rows;
+- canonical =tycho.deltas= contains only Gemini =delta@2= (0 noncanonical
+  provenance);
+- all 11 active claims resolve only to canonical meaningful v2 evidence, with 0
+  evidence defects;
+- production acquisition is Gemini-only: job generation =7=, =semantic= mode,
+  digest =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=;
+- the live route is unchanged: endpoint, OIDC identity, audience, and the
+  600-second ack deadline of =tycho-analyst-push= all match, backlog zero;
+  =tycho-nightly= is =ENABLED= with no acquisition execution active;
 - tests pass.
 
-Until the production gate opens, do not deploy the =Tycho Strategy Council=
-Agent Runtime, do not create its Scheduler job or dispatcher, and do not run a
-strategy session over production claims. The known blocker is BigQuery's
-post-streaming rename restriction; it is a timing constraint, not a defect in
-the candidate.
+The Strategy Council production path is now deployed and validated. See
+=Production deployment (2026-08-26)= in the evidence document for resource IDs,
+exact IAM, the one production session, the duplicate trigger, the telemetry
+inspection, and the before/after proof that acquisition and Analyst production
+were unchanged.
 
 * Read first
 Read completely:
@@ -317,6 +321,21 @@ Create =docs/strategic-agent-fleet-evidence.org= and bounded machine state under
 =data/=. Record resource IDs, agent names/versions, IAM, run/session IDs, card
 counts, claim-version manifest hash, token/cost totals, trace IDs, and unsafe
 field inspection. Do not persist prompts/responses in ordinary evidence.
+
+* Deployment status (2026-08-26)
+| Item | State |
+|------+-------|
+| Agent Runtime =Tycho Strategy Council= | =…/reasoningEngines/1864848136766226432=, min 0 / max 1, =AGENT_IDENTITY= |
+| Automatic Registry entry | =agentregistry-00000000-0000-0000-cc6a-d57077c7d164= |
+| Runtime roles | exactly =datastore.user=, =bigquery.dataViewer=, =bigquery.jobUser=, =telemetry.tracesWriter= |
+| Private dispatcher | =tycho-strategy-dispatcher=, authenticated, own service account |
+| Weekly Scheduler | =tycho-strategy-weekly=, =0 6 * * 1= =Etc/UTC=, =ENABLED= |
+| First production session | =sts_01M0ZGG793KQK3BTCVPAP3DH2D= — 2 proposed, 0 passed, 2 rejected, empty brief =brf_2026w35-pap3dh2d= |
+| Duplicate trigger | returns the same session, =skipped=true=, zero model calls |
+| Telemetry | 8 traces + 15 log entries inspected; 0 unsafe fields, 0 governed-prose leaks |
+| =tycho-analyst-push= | untouched, byte-identical before and after |
+
+Not done, deliberately: the dashboard. That is the next document.
 
 * Definition of done
 - Three named ADK agents run in one bounded workflow.

@@ -1,9 +1,16 @@
-#+TITLE: Tycho Strategic Agent Fleet — Local Implementation Evidence
+#+TITLE: Tycho Strategic Agent Fleet — Implementation and Production Evidence
 #+DATE: 2026-08-26
 #+STARTUP: overview
 
-* Scope of this record
-This document records the *local* implementation of the strategy council, built
+* How to read this document
+Two records, in the order they happened:
+1. *Local implementation* — the council, its schemas, gates, and offline tests.
+2. *Production deployment* — the Runtime, dispatcher, Scheduler, one real
+   session, the duplicate trigger, and the telemetry inspection. See
+   =Production deployment (2026-08-26)= at the end.
+
+* Scope of the local record
+This section records the *local* implementation of the strategy council, built
 under the split start gate in =docs/strategic-agent-fleet-handoff.org=.
 
 What this run did:
@@ -275,17 +282,338 @@ Final persistence fixes:
 All five are synthetic and offline. =strategy-session= refuses to run against
 =data/tycho.sqlite3=.
 
-* What the next session must do before production
-1. Complete the BigQuery rename: =tycho.deltas= → =tycho.delta_audit_log_20260826=,
-   =tycho.deltas_v2_candidate= → =tycho.deltas=. Retry after the post-streaming
-   rename window.
-2. Run the post-swap canonical invariants and route read-backs.
-3. Only then deploy the =Tycho Strategy Council= Agent Runtime (min 0 / max 1),
-   its private dispatcher with a separate service account, and its Scheduler
-   job. Do not alter =tycho-analyst-push=.
-4. Run one production session over canonical active claims and inspect every
-   persisted trace directly for content leakage.
-5. Confirm a duplicate trigger skips the model call in production.
+* Production deployment (2026-08-26)
+The production gate opened when the strict BigQuery swap completed. Everything
+below was verified directly against =gen-lang-client-0110801105= /
+=us-central1=; nothing is inferred from a previous document.
 
-A stored empty brief stating that no defensible cross-entity pattern exists is a
-valid production result. Do not manufacture a conclusion.
+** Production gate, re-verified read-only before deploying
+| Gate | Observed |
+|------+----------|
+| canonical =tycho.deltas= | 50 rows, all =delta@2=, 0 noncanonical provenance, 13 meaningful / 37 noise, 50 distinct Delta and comparison IDs |
+| canonical inventory hash | =d0b4b08fe59dbc3ad45e0e9668a0eea9a342a39d6d00eaa2f7e2001421ff90bf= |
+| audit =tycho.delta_audit_log_20260826= | 96 rows, 46 legacy + 50 v2, hash =e422901acc4fef75c0fa1ca94fbf112ddc008c86ce89c377e0774c55a5c8f4bc= |
+| =tycho.deltas_v2_candidate= | absent |
+| observations | 92 |
+| claims | 38 documents: 11 active, 27 retired |
+| active-claim evidence | all 11 resolve only to canonical meaningful =delta@2=; 0 evidence defects under =evidence_defect()= |
+| acquisition job | generation =7=, =TYCHO_DIFFER_MODE=semantic=, digest =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3= |
+| =tycho-nightly= | =ENABLED=, =0 2 * * *= =Etc/UTC=, no acquisition execution active |
+| =tycho-analyst-push= | endpoint/audience =https://tycho-analyst-dispatcher-u2s544lf5a-uc.a.run.app=, OIDC =tycho-agent-dispatcher@…=, ack deadline 600s, backlog 0 across 29 consecutive samples |
+| Analyst Runtime | =…/reasoningEngines/8577815225082839040= present, =AGENT_IDENTITY=, min 0 / max 1; its Cloud Run dispatcher =Ready=True= |
+| repository | branch clean, =just check= = 249 passed |
+
+The three active entities are =claude_code=, =codex=, and =pi=; each contributes
+exactly one source family (=<entity>/official_release=).
+
+** Resources created
+| Resource | Identity |
+|----------+----------|
+| Agent Runtime | =projects/548847028907/locations/us-central1/reasoningEngines/1864848136766226432= (=Tycho Strategy Council=) |
+| Registry entry (automatic) | =projects/gen-lang-client-0110801105/locations/us-central1/agents/agentregistry-00000000-0000-0000-cc6a-d57077c7d164= |
+| Registry agent ID | =urn:agent:projects-548847028907:projects:548847028907:locations:us-central1:aiplatform:reasoningEngines:1864848136766226432= |
+| Managed Agent Identity | =agents.global.proj-548847028907.system.id.goog/resources/aiplatform/projects/548847028907/locations/us-central1/reasoningEngines/1864848136766226432= |
+| Cloud Run dispatcher | =tycho-strategy-dispatcher= at =https://tycho-strategy-dispatcher-u2s544lf5a-uc.a.run.app= |
+| Dispatcher service account | =tycho-strategy-dispatcher@gen-lang-client-0110801105.iam.gserviceaccount.com= |
+| Scheduler job | =projects/gen-lang-client-0110801105/locations/us-central1/jobs/tycho-strategy-weekly= |
+| Staging bucket | =gen-lang-client-0110801105-tycho-agent-staging= (pre-existing, reused) |
+
+Runtime: =createTime 2026-08-26T16:14:48Z=, =updateTime 2026-08-26T16:56:49Z=,
+=identityType AGENT_IDENTITY=, =agent_framework google-adk=, min =0= / max =1=,
+labels =app=tycho, environment=production, version=tycho-strategy-council-1=.
+
+*** Exact IAM
+Runtime managed identity holds *exactly* four project roles, read back from the
+live policy and compared as a set:
+- =roles/bigquery.dataViewer=
+- =roles/bigquery.jobUser=
+- =roles/datastore.user=
+- =roles/telemetry.tracesWriter=
+
+Zero roles matching the forbidden prefixes =roles/storage=, =roles/pubsub=,
+=roles/aiplatform.memoryBank=, or =roles/cloudtrace=. No editor, owner, or
+=aiplatform.admin=. The readback fails closed on any wider *or* narrower set.
+
+The identity additionally inherits the project's pre-existing
+=roles/aiplatform.agentDefaultAccess= binding on
+=principalSet://agents.global.proj-548847028907.system.id.goog/attribute.platformContainer/aiplatform/projects/548847028907=,
+which is the platform default applied to every Agent Identity in the project
+(the Analyst Runtime and the disposable probe carry it too). It was not granted
+by this deployment.
+
+Dispatcher service account holds exactly =roles/aiplatform.viewer= (which
+includes =reasoningEngines.query=) and =roles/logging.logWriter=, plus
+=roles/run.invoker= on its *own* Cloud Run service so its Scheduler job can call
+it. It has no data-store, GCS, or Pub/Sub access.
+
+*** Dispatcher and Scheduler read-backs
+Dispatcher: =--no-allow-unauthenticated=, ingress =all=, runs as
+=tycho-strategy-dispatcher@…=, and the only =roles/run.invoker= member on the
+service is that same identity — no =allUsers= or =allAuthenticatedUsers=. The
+readback treats a public binding as a hard failure.
+
+Scheduler =tycho-strategy-weekly=: schedule =0 6 * * 1=, time zone =Etc/UTC=,
+state =ENABLED=, method =POST=, URI and OIDC audience both the dispatcher URL,
+OIDC identity =tycho-strategy-dispatcher@…=, attempt deadline =1800s=, next run
+=2026-08-31T06:00:00Z=. Its static body is
+={"trigger":"scheduler","period":"previous_complete_week"}= — a *name*, never a
+date range, so the job cannot widen the window and the dispatcher resolves the
+week from its own clock.
+
+** The one production session
+Triggered by =gcloud scheduler jobs run tycho-strategy-weekly= at
+=2026-08-26T17:04:39Z= — the real job, real OIDC, real endpoint. Dispatcher
+returned HTTP =200= in =24.101s=.
+
+| Field | Value |
+|-------+-------|
+| request ID | =scheduler-2026w34= |
+| period | =2026-08-17T00:00:00Z= → =2026-08-24T00:00:00Z= (ISO week 2026-W34) |
+| session | =sts_01M0ZGG793KQK3BTCVPAP3DH2D=, state =completed= |
+| brief | =brf_2026w35-pap3dh2d= |
+| manifest | 11 pinned =(claim_id, version)= entries |
+| manifest hash | =eaff310db5b2964af12c2251cbbc0cbb9654bcdeec447ab8bb5b7b629ad76589= (independently recomputed from the stored manifest and identical) |
+| context | 22,866 bytes / ~5,717 estimated tokens, inside the 200,000-byte and 50,000-token budget |
+| cards | 2 proposed, *0 passed*, 2 rejected |
+| challenges | 0 — both cards failed deterministic validation before the Challenger was consulted |
+| run IDs | =sts_01M0ZGG793KQK3BTCVPAP3DH2D:strategist= |
+| model | =gemini-3.5-flash-lite= for all three agent slots |
+| tokens | 8,047 in / 485 out / 8,532 total |
+| latency | 3,137 ms of model time |
+| cost | ≤ =$0.0079= (priced at the Gemini 3.7 Flash promotional rate as a documented upper bound; Flash-Lite is cheaper) |
+
+*** Why zero cards is the honest answer
+Both drafts were rejected by =pipeline/strategy_evidence.py=, by
+Python-generated reasons only:
+
+| Card | Deterministic rejection reasons |
+|------+---------------------------------|
+| =stc_01M0ZGGMZ5GF44D2R8M7FT4GYG= (=claude_code=, =codex=; 2 source families) | conclusion asserts unsupported causation |
+| =stc_01M0ZGGPA4W87FCF28W9RBCS50= (=claude_code= only; 1 source family) | needs 2 distinct entities, got 1; needs 2 independent source families, got 1 after mirrored-evidence normalization; conclusion asserts unsupported causation |
+
+The first card cleared entity and source-family diversity and still failed on
+the conclusion-language policy. Nothing was relaxed to produce a result, and no
+conclusion was manufactured: the session stored the deterministic empty brief
+(=482= bytes, zero citations, zero pinned claims, no URL) stating that no
+defensible cross-entity pattern survived validation. That is a valid outcome
+under the spec.
+
+Brief statistics recomputed in Python for the period: =new=5=, =superseded=0=,
+=confidence_changes=0=, =stale_flagged=0=.
+
+*** Two earlier failed attempts, and the defect they found
+The first trigger at =2026-08-26T16:48:54Z= failed, and Cloud Scheduler's own
+single retry at =16:50:03Z= failed the same way. Both are recorded honestly:
+
+- dispatcher returned HTTP =503= both times, so the period stayed retryable;
+- sessions =sts_01M0ZFMGKMR4E82D5XA37D3DG9= and
+  =sts_01M0ZFN5N3WDNQT77Z9K81BZAE= are durable =failed= records;
+- the lease reached =attempt=2=, =state=failed=, and stayed reclaimable;
+- both stored errors are the sanitized
+  =strategist:StrategyModelError: agent returned no usable structured output= —
+  no model output, claim text, or quote reached storage;
+- zero briefs were written, zero claims mutated.
+
+Root cause: =strategy_agent/invoker.py= read only the final *text* response.
+ADK's =mode="task"= agents do not answer with text — a strict-structured task
+agent delivers its output as the arguments of one =finish_task= function call,
+and the final event carries only the tool's confirmation string. The invoker had
+never been exercised against a real provider before this run. It now reads the
+last =finish_task= call's arguments and falls back to JSON text, covered by five
+regression tests. The Runtime package was updated at =2026-08-26T16:56:49Z= and
+the next trigger completed.
+
+The failure path is therefore not a caveat on this deployment; it is the part of
+it with the most direct evidence.
+
+** Duplicate trigger
+The same Scheduler job was fired a second time at =2026-08-26T17:05:36Z=,
+normalizing to the identical =(period_from, period_to, strategy_version)= lease
+identity.
+
+| Check | Result |
+|-------+--------|
+| dispatcher response | HTTP =200= in =2.665s= (versus =24.101s= for the real run) |
+| =skipped= | =true= |
+| session returned | =sts_01M0ZGG793KQK3BTCVPAP3DH2D= — the existing one |
+| brief returned | =brf_2026w35-pap3dh2d= — the existing one |
+| counts returned | identical: 2 proposed / 0 passed / 2 rejected |
+| completed sessions for the period | exactly =1= |
+| briefs for the period | exactly =1= |
+| model calls across every session for the period | =1= |
+| Runtime trace for the duplicate | =15c20693e82c277a9d28f9bc60929053=, 2 spans, *zero* =generate_content= spans |
+
+The trace is the decisive part: the duplicate's Runtime invocation produced only
+=invoke_workflow= and =invoke_agent= spans for =tycho_strategy_council=. No
+=call_llm=, no =generate_content=, no =tycho_strategist=.
+
+** Telemetry inspection
+Every persisted trace in the window from =2026-08-26T16:34:51Z= was fetched and
+inspected directly — =8= traces, =4= Runtime invocations plus =4= Cloud Run
+dispatcher request traces — together with =15= dispatcher log entries.
+
+| Trace | Start | Spans | =generate_content= | What it is |
+|-------+-------+-------+-------------------+------------|
+| =811df7f93f807bdad1ad89d35e746345= | 16:48:59Z | 3 | 0 | dispatcher request, attempt 1 |
+| =d36c815819d58c78b7077bfd984d00d1= | 16:49:41Z | 7 | 1 | Runtime, attempt 1 (failed) |
+| =d9871a310d19f96896ed4ff5f4d21d77= | 16:50:03Z | 3 | 0 | dispatcher request, Scheduler retry |
+| =35f57753c87ce492960ddbe0e07c430c= | 16:50:04Z | 13 | 3 | Runtime, attempt 2 (failed; ADK schema retries) |
+| =ad1477437e3ab158588cbcc472e24988= | 17:04:44Z | 3 | 0 | dispatcher request, the production session |
+| =e6c084c74e5fadadf72da735f3ba47b8= | 17:04:47Z | 7 | 1 | *Runtime, the production session* |
+| =4601a3a7c8327cc80226caf40e8ad3c8= | 17:05:39Z | 3 | 0 | dispatcher request, duplicate trigger |
+| =15c20693e82c277a9d28f9bc60929053= | 17:05:40Z | 2 | 0 | *Runtime, duplicate trigger — no model call* |
+
+Runtime span names are structural only: =invoke_workflow tycho_strategy_council=,
+=invoke_agent tycho_strategy_council=, =invoke_workflow tycho_strategist=,
+=invoke_agent tycho_strategist=, =call_llm=,
+=generate_content gemini-3.5-flash-lite=, =execute_tool finish_task=. Span
+attributes are limited to =gen_ai.operation.name=, =gen_ai.agent.name=,
+=gen_ai.agent.description=, =gen_ai.request.model=,
+=gen_ai.response.finish_reasons=, =gen_ai.usage.input_tokens=,
+=gen_ai.usage.output_tokens=, =gcp.vertex.agent.invocation_id=,
+=gcp.vertex.agent.event_id=, and platform/SDK resource labels.
+
+*** What was explicitly searched for, and not found
+Two independent checks, both clean:
+
+1. *Forbidden field names* — =0= hits across all 8 traces and all 15 log
+   entries for: =llm_request=, =llm_response=, =system_instruction(s)=,
+   =user_messages=, =tool_definitions=, =gen_ai.prompt=, =gen_ai.completion=,
+   =gen_ai.response.text=, =message_content=, =input_value=, =output_value=,
+   =input.value=, =output.value=, =prompt=, =completion=, =statement=,
+   =rationale=, =quote=, =rendered_md=, =model_output=, =request_content=.
+2. *The governed prose itself* — =0= hits. Scanning for field names only catches
+   leaks somebody already anticipated, so =infra/verify_strategy_production.py=
+   also pulls the real text the session read and wrote out of the store — claim
+   statements, claim rationales, Delta change statements, grounded evidence
+   quotes, every proposed card's statement/rationale/competing
+   explanation/falsifier, and the brief's own prose — and proves none of it
+   occurs anywhere in any trace or log payload. =122= normalized snippets were
+   searched, case- and whitespace-insensitively. None appeared.
+
+The dispatcher's four bounded result lines carry only: =service=, =request_id=,
+=trigger=, =period_from=, =period_to=, =strategy_version=, =runtime=,
+=session_id=, =state=, =cards_proposed=, =cards_passed=, =cards_rejected=,
+=brief_id=, =skipped=, and the sanitized =error=. That set is enforced by an
+allowlist, so a content-bearing field cannot appear by being added upstream.
+
+** Existing production was not touched
+Snapshots taken before deployment (=16:14:02Z=) and after the session and
+duplicate trigger (=17:20Z=) are byte-identical for every unrelated resource:
+
+| Resource | Before | After |
+|----------+--------+-------|
+| =tycho-analyst-push= endpoint, audience, OIDC identity, ack deadline, topic | unchanged | unchanged |
+| =tycho-nightly= schedule/time zone/state | =0 2 * * *=, =Etc/UTC=, =ENABLED= | identical |
+| =tycho-acquire= generation / image digest / differ mode | =7= / =sha256:e993e3df…= / =semantic= | identical |
+| BigQuery canonical rows / v2 rows / audit rows / observations | 50 / 50 / 96 / 92 | identical |
+| canonical Delta inventory hash | =d0b4b08f…= | identical |
+| Firestore claim documents / active / retired | 38 / 11 / 27 | identical |
+| Firestore =analyst_runs= | 57 | identical |
+| Firestore =alerts= | 0 | identical |
+
+The only differences anywhere are the new strategy resources: Cloud Run gains
+=tycho-strategy-dispatcher=, the Runtime list gains =Tycho Strategy Council=,
+and Firestore gains =strategy_sessions= 0 → 3, =strategy_leases= 0 → 1, and
+=briefs= 0 → 1. No Pub/Sub message was published, no Analyst Runtime invocation
+occurred, no claim, Delta, or Observation was written.
+
+** What was built for this deployment
+| Module | Role |
+|--------+------|
+| =pipeline/strategy_dispatcher.py= | the private authenticated dispatcher: derives the week, normalizes the trigger into the existing bounded =StrategyRequest=, parses a bounded Runtime result, logs structure only |
+| =infra/deploy_strategy_council.py= | resumable, idempotent deployment across nine steps; structurally incapable of modifying the analyst path |
+| =infra/verify_strategy_production.py= | read-only session, telemetry, and duplicate-trigger verification |
+| =data/strategy_council_production.json= | deployment state, read-backs, and the before/after production snapshots |
+| =data/strategy_production_session.json= | session, telemetry, and duplicate-trigger evidence |
+
+*** The deployment tool cannot touch =tycho-analyst-push=
+Every shell-out goes through one =run()= wrapper that calls =guard_command()=
+first. A command naming =tycho-analyst-push=, =tycho-analyst-dispatcher=,
+=tycho-analyst=, =tycho-nightly=, =tycho-acquire=, =tycho-deltas=,
+=tycho-agent-dispatcher=, or =tycho-runtime= is refused unless it is
+unambiguously read-only (=describe=, =list=, =get-iam-policy=, =read=, =tail=).
+The string =modify-push-config= does not occur in the module at all. Nine
+parametrized tests assert the refusals, four assert that reads still work for
+evidence, and one asserts the strategy resources are not caught by the guard.
+
+Pointing the tooling at the Analyst Runtime by resource name is separately
+refused: =readback_runtime= raises =ProtectedResourceError= on the display name
+=Tycho Analyst= before anything is written, and =update= runs that readback
+before it reaches the API at all.
+
+*** Resume and idempotency, proved in production
+The first deployment run was killed mid-Scheduler-step. On re-run with
+=--resume= the tool read all eight completed resources back from the API,
+created nothing a second time, and applied only the missing Scheduler step —
+exactly the designed behaviour, observed against the live project rather than a
+fixture. The =untouched_before= snapshot was captured once and never
+overwritten.
+
+Offline, the same properties are covered by: a second deploy applying nothing
+and reading everything back; a mid-way failure leaving earlier steps recorded
+and only the missing ones applied on resume; a second deploy without =--resume=
+refusing rather than redeploying; an orphaned same-name Runtime blocking a
+second create; a state file for another project failing closed; and readback
+refusing a deployment that never finished.
+
+** Defects found and fixed during this deployment
+1. *The model boundary never read ADK task-mode output.* Described above. Fixed
+   in =strategy_agent/invoker.py=; five regression tests.
+2. *Cloud Trace pagination silently truncated the inspection.* Cloud Trace v1's
+   =pageSize= is a scan budget over the project's traces, not a result count: a
+   single page returned 1 of the 8 matching traces at =pageSize=100= and 0 at
+   =pageSize=20=. Claiming "every persisted trace was inspected" would have been
+   false. =fetch_traces= now follows =nextPageToken= to exhaustion, de-duplicates
+   by trace ID, and raises rather than truncate if paging does not terminate.
+   Four regression tests.
+3. *The brief was named after the wrong ISO week.* =period.to= is exclusive, so
+   a Monday-aligned weekly window ends at the first instant of the *following*
+   week; naming the brief after that instant labelled week 34's report as week
+   35. =period_week()= now uses the last moment the period actually covers. Two
+   regression tests, and the pre-existing mid-week synthetic case is unchanged.
+   *The one stored production brief predates this fix*: =brf_2026w35-pap3dh2d=
+   covers ISO week 2026-W34. Briefs are write-once and it was not rewritten.
+4. *=gcloud scheduler jobs update http= rejects =--headers=.* It takes
+   =--update-headers= for the same map, so the idempotent re-apply path failed
+   on its first real use. Fixed per verb.
+5. *Cloud Scheduler normalizes the target URI with a trailing slash.* The
+   readback failed closed on =https://host/= versus =https://host=. Endpoints are
+   now compared modulo one trailing slash; a genuinely different host is still
+   drift. Six regression tests.
+
+** Test coverage added
+| Suite | Tests | Covers |
+|-------+-------+--------|
+| =tests/test_strategy_dispatcher.py= | 34 | weekly period derivation, duplicate triggers sharing one lease identity, unknown-field rejection by name, malformed/oversized bodies, authentication, the exact payload sent to the Runtime, bounded result parsing, a content-bearing result being refused, structural-only logs, and the dispatcher reaching no store, topic, or snapshot |
+| =tests/test_strategy_deploy.py= | 52 | the analyst-path guard (refusals and permitted reads), the exact Runtime IAM allowlist and forbidden roles, IAM readback failing closed both ways, the dispatcher identity's narrow roles, scale-to-zero Agent Identity config, a public dispatcher and a drifted Scheduler job as hard failures, endpoint comparison, resume/idempotency, and structural-only state |
+| =tests/test_strategy_production_checks.py= | 28 | forbidden field-name detection, governed-prose leak detection under case/whitespace changes, premise re-resolution against the store, the zero-card result, cost labelling, trace pagination, and dispatcher log-line parsing |
+| =tests/test_strategy_agents.py= | +5 | ADK task-mode =finish_task= output extraction, rejected-draft precedence, wrapped non-object schemas, and other tool calls not being mistaken for output |
+| =tests/test_strategy_council.py= | +2 | the brief being named after the ISO week it actually covers |
+
+=just check= (lock check, Ruff, compileall, pytest): *370 passed*, up from 249.
+The strategy suites are now *278* tests, up from 157.
+
+** Commands
+#+begin_src bash
+just strategy-plan        # print the deployment plan; contacts nothing
+just strategy-deploy      # PRODUCTION: resumable, idempotent deploy (asks to confirm)
+just strategy-readback    # read every deployed resource back
+just strategy-snapshot    # record the untouched acquisition/Analyst state
+just strategy-verify      # re-verify the latest production session
+just strategy-telemetry   # re-inspect traces and dispatcher logs for leakage
+#+end_src
+
+Only =strategy-deploy= writes. It requires an interactive =yes= and fails closed
+without a terminal.
+
+** Still open
+- The dashboard is deliberately not built; this task stops at the backend and
+  its deployment evidence.
+- The first natural *meaningful* =delta@2= end-to-end Analyst validation remains
+  a separate pending gate, unchanged by this work.
+- No strategy card has yet passed in production. With three entities publishing
+  through one source family each, a card must clear both diversity rules and the
+  conclusion-language policy; the next session runs on Monday
+  =2026-08-31T06:00:00Z=.
+- =GOOGLE_API_KEY= in the local =.env= still needs rotation before sharing.

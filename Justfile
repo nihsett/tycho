@@ -91,7 +91,9 @@ strategy-test:
     uv run pytest tests/test_strategy_schemas.py tests/test_strategy_evidence.py \
         tests/test_strategy_context.py tests/test_strategy_citations.py \
         tests/test_strategy_council.py tests/test_strategy_persistence.py \
-        tests/test_strategy_agents.py tests/test_strategy_local_run.py
+        tests/test_strategy_agents.py tests/test_strategy_local_run.py \
+        tests/test_strategy_recovery.py tests/test_strategy_dispatcher.py \
+        tests/test_strategy_deploy.py tests/test_strategy_production_checks.py
 
 # Print the strategy sessions and briefs held in the disposable local store.
 strategy-stats:
@@ -109,9 +111,32 @@ cutover-check:
         --project {{ project }} --region {{ region }} --dry-run
 
 # Read-only audit of a strict Delta@2 table. Writes nothing; calls no model.
-audit table="deltas_v2_candidate":
+audit table="deltas":
     uv run python -m infra.audit_semantic_candidate \
         --project {{ project }} --table {{ table }}
+
+# Print the Strategy Council deployment plan. Contacts nothing.
+strategy-plan:
+    uv run python -m infra.deploy_strategy_council plan \
+        --project {{ project }} --location {{ region }}
+
+# Read every deployed Strategy Council resource back. Writes no cloud resource.
+strategy-readback:
+    uv run python -m infra.deploy_strategy_council readback \
+        --project {{ project }} --location {{ region }}
+
+# Record the untouched acquisition/Analyst production state. Reads only.
+strategy-snapshot key="untouched_after":
+    uv run python -m infra.deploy_strategy_council snapshot \
+        --project {{ project }} --location {{ region }} --snapshot-key {{ key }}
+
+# Re-verify the latest production strategy session. Reads only; calls no model.
+strategy-verify:
+    uv run python -m infra.verify_strategy_production session --project {{ project }}
+
+# Re-inspect Runtime traces and dispatcher logs for leakage. Reads only.
+strategy-telemetry:
+    uv run python -m infra.verify_strategy_production telemetry --project {{ project }}
 
 # --- Production (interactive confirmation required) -------------------------
 
@@ -119,6 +144,11 @@ audit table="deltas_v2_candidate":
 cutover-apply: (_confirm "apply the resumable strict Delta@2 table cutover")
     uv run python -m infra.cutover_semantic_deltas \
         --project {{ project }} --region {{ region }} --apply --resume
+
+# PRODUCTION: resumable Strategy Council Runtime, dispatcher, and Scheduler deploy.
+strategy-deploy: (_confirm "deploy the Tycho Strategy Council production path")
+    uv run python -m infra.deploy_strategy_council deploy --resume \
+        --project {{ project }} --location {{ region }}
 
 # PRODUCTION: deploy cloud resources and the acquisition job.
 deploy: (_confirm "deploy Tycho cloud resources")

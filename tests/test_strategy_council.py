@@ -302,3 +302,39 @@ def test_brief_id_tracks_the_period_and_stays_unique_per_session(tmp_path):
     assert first.startswith("brf_2026w35-")
     assert second.startswith("brf_2026w35-")
     assert first != second
+
+
+# --- The brief is named after the week it actually covers --------------------
+
+
+def test_a_monday_aligned_week_is_labelled_by_the_week_it_covers():
+    """period.to is exclusive: naming the brief after it shifts a week forward."""
+    from datetime import UTC, datetime
+
+    from schemas.strategy import SessionPeriod
+    from strategy_agent.council import brief_id_for, period_week, render_brief_markdown
+
+    period = SessionPeriod.model_validate(
+        {"from": datetime(2026, 8, 17, tzinfo=UTC), "to": datetime(2026, 8, 24, tzinfo=UTC)}
+    )
+
+    assert period_week(period) == (2026, 34)
+    assert brief_id_for(period) == "brf_2026w34"
+    assert "2026-W34" in render_brief_markdown(None, period)
+
+
+def test_a_mid_week_period_keeps_the_week_its_last_day_falls_in():
+    from datetime import UTC, datetime
+
+    from schemas.strategy import SessionPeriod
+    from strategy_agent.council import brief_id_for, period_week
+
+    period = SessionPeriod.model_validate(
+        {
+            "from": datetime(2026, 8, 19, 9, tzinfo=UTC),
+            "to": datetime(2026, 8, 26, 9, tzinfo=UTC),
+        }
+    )
+
+    assert period_week(period) == (2026, 35)
+    assert brief_id_for(period) == "brf_2026w35"

@@ -132,14 +132,16 @@ writes nothing back into them:
 | Delta audit log | data | BigQuery `tycho.delta_audit_log_20260826` | immutable migration/rollback evidence only |
 | Observation log | data | BigQuery (partitioned) + Cloud Storage (raw) | append-only; the immutable "what happened" |
 | Brief writer | ADK agent | Cloud Run, weekly schedule | renders diff-of-beliefs; pins (claim_id, version) |
-| Strategy Council entrypoint | deterministic `BaseAgent` (`tycho_strategy_council`) | Strategy Council Runtime (not yet deployed) | parses only a bounded `StrategyRequest`; no outer model, no tools; drives the three agents through the governed workflow, never as a raw ADK sequence |
-| Strategist | ADK agent (`tycho_strategist`) | Strategy Council Runtime (not yet deployed) | proposes ≤3 present-state cross-entity conclusions; no tools, strict structured output |
+| Strategy Council entrypoint | deterministic `BaseAgent` (`tycho_strategy_council`) | Strategy Council Runtime (Agent Identity, min 0 / max 1) | parses only a bounded `StrategyRequest`; no outer model, no tools; drives the three agents through the governed workflow, never as a raw ADK sequence |
+| Strategist | ADK agent (`tycho_strategist`) | Strategy Council Runtime | proposes ≤3 present-state cross-entity conclusions; no tools, strict structured output |
 | Challenger | ADK agent (`tycho_challenger`) | same Runtime | independently checks one card against its pinned premises; its pass is quality control, not evidence |
 | Strategy brief writer | ADK agent (`tycho_brief_writer`) | same Runtime | writes the brief from passed cards only; cites claim versions, never URLs |
 | Strategy evidence rules | Python | `pipeline/strategy_evidence.py` | pinning, canonical-v2, entity/source-family diversity, staleness, confidence ceiling, conclusion-language policy |
 | Strategy context builder | Python | `pipeline/strategy_context.py` | deterministic bounded manifest and metrics; fails durably over budget |
 | Strategy sessions | data | Firestore / SQLite | write-once audit of cards, challenges, manifest hash, safe metrics; brief + terminal state + lease release commit atomically |
 | Strategy leases | data | Firestore / SQLite | transactional `(period_from, period_to, strategy_version)` identity; the lease and the running session are created together, and the final commit requires the session to still own an active lease |
+| Strategy dispatcher | deterministic service | private Cloud Run (`tycho-strategy-dispatcher`), own service account | authenticated; accepts a trigger naming a period, never a date range or prompt; derives the previous complete week itself and normalizes it into the bounded `StrategyRequest`; returns and logs only IDs, state, counts, and `skipped` |
+| Strategy schedule | Cloud Scheduler (`tycho-strategy-weekly`) | — | Monday 06:00 UTC (`0 6 * * 1`); OIDC to the strategy dispatcher only; its body is a static period *name*, so it cannot widen the window |
 | Q&A agent | ADK agent | Cloud Run | claims-only answers with evidence citations; refuses when no claim covers the question |
 | Delivery receipts | data | Firestore | (claim_id, version) delivered once per context; new version re-delivers |
 | Config | YAML in repo | — | canonical entity keys, sources, ontology, staleness clocks, schedules |
@@ -191,8 +193,18 @@ Accumulate facts; revise beliefs. Never the other way around.
   and trace-writer roles. It receives no GCS or Pub/Sub permissions.
 - Pub/Sub reaches the analyst through a separate authenticated dispatcher. The
   dispatcher sends only a validated `delta_id` and never writes claims.
-- The strategy dispatcher accepts only a bounded period and a request ID. It
-  rejects any extra field, so no caller can smuggle prompt text into an agent.
+- The strategy dispatcher is private and authenticated, runs as its own service
+  account, and is separate from the analyst Pub/Sub dispatcher. It accepts only
+  a trigger naming which bounded period to run; it resolves the week from its
+  own clock and normalizes it through the same `StrategyRequest` the Runtime
+  accepts, so it is structurally incapable of sending anything wider. It rejects
+  any extra field by name, so no caller can smuggle prompt text into an agent,
+  and it refuses a Runtime result carrying an unexpected field rather than
+  logging or returning it.
+- The strategy deployment tool routes every shell-out through one guard that
+  refuses any non-read-only command naming the analyst subscription, dispatcher,
+  Runtime, acquisition job, nightly schedule, or Delta topic. It reads those
+  resources for before/after evidence and can never write them.
 - The strategy council agents hold no tools: no web search, no GCS, no Pub/Sub,
   no Memory Bank, and no claim mutation. Its Runtime identity requests only
   `roles/datastore.user`, `roles/bigquery.dataViewer`, `roles/bigquery.jobUser`,
@@ -215,7 +227,15 @@ Accumulate facts; revise beliefs. Never the other way around.
   Delta@2 → Observation → raw snapshot. Noise remains in BigQuery for audit.
 - OpenTelemetry traces on agent runs (ADK-native), correlated by delta_id.
 - Runtime trace export is redacted before the managed exporter; direct Cloud
-  Trace inspection is required before any production routing change.
+  Trace inspection is required before any production routing change. Inspection
+  must follow Cloud Trace pagination to exhaustion: `pageSize` is a scan budget
+  over the project's traces, not a result count, so one page silently returns a
+  subset.
+- Field-name scanning alone is not proof. `infra/verify_strategy_production.py`
+  also pulls the governed prose a session actually read and wrote — claim
+  statements and rationales, Delta change statements, grounded quotes, card text,
+  brief prose — out of the store and proves none of it occurs in any exported
+  trace or log payload.
 
 ## Cost design
 

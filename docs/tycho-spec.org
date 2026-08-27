@@ -466,6 +466,32 @@ text, so the question is a constant and not an input. Two triggers share the
 same code path: the weekly Cloud Scheduler session and the authenticated
 dashboard =Run Strategy Session= action.
 
+** Trigger contract and the derived period
+A trigger names *which* bounded period to run; it never carries the period
+itself. The only v1 selector is =previous_complete_week=. The dispatcher
+resolves it from its own clock as the last calendar week that entirely finished
+before the trigger, Monday 00:00 UTC to the following Monday 00:00 UTC. One
+static Scheduler body therefore yields a different, deterministic week every
+Monday, a caller cannot widen the window, and every trigger inside one calendar
+week normalizes to the same =(period_from, period_to, strategy_version)= lease
+identity — which is what makes a duplicate trigger return the existing session.
+
+The request ID is derived, never random: =<trigger>-<iso-year>w<iso-week>=.
+
+Normalization runs *through* the bounded =StrategyRequest=, so the dispatcher is
+structurally incapable of sending Agent Runtime anything the Runtime's own
+contract would not already accept. Unknown fields are rejected by name, so
+=prompt=, =question=, =instructions=, or a hand-written period cannot be
+silently ignored.
+
+The result crossing back is equally closed: session ID, strategy version, state,
+the three card counts, brief ID, =skipped=, and a sanitized error. A result
+carrying any other field is refused rather than logged or returned.
+
+Brief identity is named after the week the period actually *covers*. =period.to=
+is exclusive, so a Monday-aligned window ends at the first instant of the
+following week; the label is taken from the last moment inside the period.
+
 ** Workflow
 #+begin_example
 bounded context builder (Python)
@@ -568,6 +594,26 @@ citation fails the run. Zero passed cards is a valid, valuable result: the
 session stores an empty brief stating that no defensible cross-entity pattern
 survived validation.
 
+** Production deployment
+The council runs on its own managed Agent Runtime, separate from the Analyst's:
+its own Registry entry, its own managed Agent Identity, its own private
+authenticated Cloud Run dispatcher with its own service account, and its own
+weekly Scheduler job. Nothing in the strategy path shares a resource with
+=tycho-analyst-push=, and the deployment tool refuses any non-read-only command
+naming an analyst-path resource.
+
+The Runtime identity holds exactly four project roles — =roles/datastore.user=,
+=roles/bigquery.dataViewer=, =roles/bigquery.jobUser=, and
+=roles/telemetry.tracesWriter= — and the readback fails closed on any wider or
+narrower set. No GCS, Storage, Pub/Sub, Memory Bank, Cloud Trace agent, editor,
+or owner role. The dispatcher identity receives only what it needs to invoke the
+Strategy Runtime, write structural logs, and be invoked by its own Scheduler.
+
+Deployment is resumable and idempotent: each durable resource is persisted the
+moment it exists, every step is read back from the API rather than trusted from
+state, a resource that exists but does not match the recorded identity is a hard
+failure, and nothing is ever deleted or replaced. Scaling is min 0 / max 1.
+
 ** Redaction
 Persisted strategy events and exported traces carry structure only — session ID,
 agent name, state, card counts, rejection counts, claim IDs/versions, run IDs,
@@ -616,12 +662,15 @@ tycho/
   adapters/          # github.py first; webpage.py, rss.py, search.py next
   pipeline/          # semantic_differ.py, acquire*.py, legacy differ/triage,
                      # analyst.py, claims.py, generation leases,
-                     # strategy_context.py, strategy_evidence.py, strategy_lease.py
+                     # strategy_context.py, strategy_evidence.py, strategy_lease.py,
+                     # strategy_dispatcher.py (private authenticated trigger)
   experiments/        # read-only semantic historical replay
   runtime_agent/     # request-scoped Agent Runtime wrapper; no outer model
   strategy_agent/    # the three named council agents, workflow, citations,
                      # safe events, request contract, synthetic fixtures
-  infra/             # bootstrap, additive Delta schema migration, deploy scripts
+  infra/             # bootstrap, additive Delta schema migration, deploy scripts,
+                     # resumable strategy-council deployment, read-only
+                     # production session/telemetry verification
   tests/              # schema, grounding, retry, storage, and mode regressions
 #+end_src
 

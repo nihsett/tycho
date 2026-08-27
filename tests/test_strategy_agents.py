@@ -274,3 +274,72 @@ def test_dispatcher_rejects_malformed_bodies():
         parse_strategy_request(b"not-json")
     with pytest.raises(StrategyRequestError, match="JSON object"):
         parse_strategy_request(b"[]")
+
+
+# --- The model boundary reads ADK task mode correctly -----------------------
+
+
+def _fake_event(*, function_call=None, text=None):
+    """One ADK-shaped event: a finish_task call, a text part, or neither."""
+    from types import SimpleNamespace
+
+    parts = []
+    if function_call is not None:
+        parts.append(SimpleNamespace(function_call=function_call, text=None))
+    if text is not None:
+        parts.append(SimpleNamespace(function_call=None, text=text))
+    return SimpleNamespace(content=SimpleNamespace(parts=parts))
+
+
+def _finish_task(args, name="finish_task"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(name=name, args=args)
+
+
+def test_a_task_agent_delivers_its_output_through_finish_task_not_text():
+    """The council agents run in ADK task mode, which never answers with text."""
+    from strategy_agent.invoker import structured_payload
+
+    events = [
+        _fake_event(text="Task completed."),
+        _fake_event(function_call=_finish_task({"cards": [], "no_pattern_reason": "none"})),
+        _fake_event(text="Task completed."),
+    ]
+
+    assert structured_payload(events) == {"cards": [], "no_pattern_reason": "none"}
+
+
+def test_a_rejected_draft_is_ignored_in_favour_of_the_accepted_one():
+    """A schema failure makes ADK retry; only the last call is the real output."""
+    from strategy_agent.invoker import structured_payload
+
+    events = [
+        _fake_event(function_call=_finish_task({"cards": ["rejected draft"]})),
+        _fake_event(function_call=_finish_task({"cards": []})),
+    ]
+
+    assert structured_payload(events) == {"cards": []}
+
+
+def test_a_non_object_schema_arrives_wrapped_and_is_unwrapped():
+    from strategy_agent.invoker import structured_payload
+
+    events = [_fake_event(function_call=_finish_task({"result": {"verdict": "pass"}}))]
+
+    assert structured_payload(events) == {"verdict": "pass"}
+
+
+def test_another_tool_call_is_never_mistaken_for_the_output():
+    from strategy_agent.invoker import structured_payload
+
+    events = [_fake_event(function_call=_finish_task({"anything": 1}, name="transfer_to_agent"))]
+
+    assert structured_payload(events) is None
+
+
+def test_no_finish_task_call_falls_through_to_the_text_path():
+    from strategy_agent.invoker import structured_payload
+
+    assert structured_payload([_fake_event(text='{"cards": []}')]) is None
+    assert structured_payload([]) is None

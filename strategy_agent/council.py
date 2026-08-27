@@ -157,6 +157,18 @@ def stage_for(exc: BaseException) -> Stage:
     }.get(type(exc).__name__, Stage.UNKNOWN)
 
 
+def period_week(period: SessionPeriod) -> tuple[int, int]:
+    """The ISO week a period actually covers.
+
+    ``period.to`` is exclusive, so a Monday-aligned weekly window ends at the
+    first instant of the FOLLOWING week; naming the brief after that instant
+    would label week 34's report as week 35.  Take the last moment the period
+    genuinely covers instead.
+    """
+    year, week, _ = (period.to - timedelta(microseconds=1)).isocalendar()
+    return year, week
+
+
 def brief_id_for(period: SessionPeriod, session_id: str | None = None) -> str:
     """Weekly brief identity, made unique per session.
 
@@ -164,7 +176,7 @@ def brief_id_for(period: SessionPeriod, session_id: str | None = None) -> str:
     the same week and would collide with the abandoned attempt's brief. The
     session discriminator keeps every attempt's brief distinct and write-once.
     """
-    year, week, _ = period.to.isocalendar()
+    year, week = period_week(period)
     base = f"brf_{year:04d}w{week:02d}"
     if session_id is None:
         return base
@@ -344,7 +356,7 @@ def compute_brief_stats(
 
 def render_brief_markdown(draft: BriefDraft | None, period: SessionPeriod) -> str:
     """Assemble the four fixed sections; an empty session still renders one."""
-    year, week, _ = period.to.isocalendar()
+    year, week = period_week(period)
     header = f"# Tycho strategy brief — {year:04d}-W{week:02d}"
     if draft is None:
         return "\n\n".join(

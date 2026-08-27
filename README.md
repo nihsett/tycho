@@ -54,13 +54,20 @@ replay for demos.
 | `just strategy-stats` | Sessions and briefs in the disposable strategy store |
 | `just strategy-clean` | Delete the disposable strategy store |
 | `just cutover-check` | Read-only BigQuery cutover inspection |
-| `just audit` | Read-only audit of the strict Delta@2 candidate table |
+| `just audit` | Read-only audit of the strict Delta@2 canonical table |
+| `just strategy-plan` | Print the Strategy Council deployment plan; contacts nothing |
+| `just strategy-readback` | Read every deployed Strategy Council resource back |
+| `just strategy-snapshot` | Record the untouched acquisition/Analyst production state |
+| `just strategy-verify` | Re-verify the latest production strategy session |
+| `just strategy-telemetry` | Re-inspect Runtime traces and dispatcher logs for leakage |
 | `just cutover-apply` | **Production** table cutover (asks for confirmation) |
+| `just strategy-deploy` | **Production** Strategy Council deployment (asks for confirmation) |
 | `just deploy` | **Production** deployment (asks for confirmation) |
 
 `TYCHO_PROJECT` and `TYCHO_REGION` override the project and region variables.
-The two production recipes require an interactive `yes` and fail closed without
-a terminal, so they can never run from `check`, `ci`, or the default recipe.
+The three production recipes require an interactive `yes` and fail closed
+without a terminal, so they can never run from `check`, `ci`, or the default
+recipe. Everything else in the table reads or runs locally.
 
 ## How acquisition works
 
@@ -96,8 +103,60 @@ families, where one vendor's mirrored release channels count as one family.
 Confidence never exceeds the weakest premise and is never `confirmed`. A
 Challenger `pass` is quality control, not evidence: it can only reject.
 
-Production deployment of the Strategy Council Runtime is still gated on the
-BigQuery table swap — see `docs/strategic-agent-fleet-handoff.org`.
+## Run the strategy council in production
+
+The council runs on its own managed Agent Runtime, behind its own private
+authenticated Cloud Run dispatcher, on its own weekly Cloud Scheduler job. None
+of it shares a resource with the analyst path.
+
+```bash
+just strategy-plan       # what would be created, and the week a trigger resolves to
+just strategy-deploy     # confirmation required; resumable and idempotent
+just strategy-readback   # read every resource back from the API
+```
+
+Deployment creates nine resources in order and persists each one the moment it
+exists, so a failed attempt resumes instead of creating a second Runtime. Every
+step is read back from the API rather than trusted from the state file, a
+resource that exists but does not match the recorded identity is a hard failure,
+and nothing is ever deleted or replaced. The Runtime identity receives exactly
+four roles — Firestore user, BigQuery data viewer, BigQuery job user, and trace
+writer — and the readback fails closed on anything wider *or* narrower.
+
+The tool is structurally incapable of modifying the analyst path: every
+shell-out passes a guard that refuses any non-read-only command naming
+`tycho-analyst-push`, the analyst dispatcher or Runtime, the acquisition job,
+the nightly schedule, or the Delta topic. It reads them for before/after
+evidence and can never write them.
+
+The Scheduler job posts a static body naming a *period*, never a date range:
+
+```json
+{"trigger": "scheduler", "period": "previous_complete_week"}
+```
+
+The dispatcher resolves that to the last calendar week that entirely finished,
+Monday to Monday UTC. One static body therefore yields a different, deterministic
+week every Monday, a caller cannot widen the window, and two triggers inside one
+week land on the same lease — so a duplicate returns the existing session with
+`skipped: true` and makes no model call. Unknown fields are rejected by name, so
+`prompt`, `question`, or `instructions` cannot be smuggled in and silently
+ignored.
+
+Verify a session after the fact, without writing anything:
+
+```bash
+just strategy-verify     # re-resolves every pinned premise against the store
+just strategy-telemetry  # inspects every persisted trace and dispatcher log
+```
+
+`strategy-telemetry` does more than scan for forbidden field names. It pulls the
+governed prose the session actually read and wrote — claim statements and
+rationales, Delta change statements, grounded quotes, card text, brief prose —
+out of the store and proves none of it occurs in any exported trace or log.
+
+See `docs/strategic-agent-fleet-evidence.org` for the deployed resource IDs, the
+exact IAM, the first production session, and the telemetry inspection.
 
 ## Calibrate the Gemini analyst
 

@@ -27,9 +27,11 @@ hash gating remain deterministic; changed clean pairs use the grounded Gemini
 mode. Agent Runtime is the governed claim writer. Semantic attempts use durable
 generation leases and redacted metadata. The historical backlog repair has
 validated and inserted 46 Gemini =delta@2= replacements without publication.
-Legacy-backed claims have been governed and corrected, but the strict canonical
-BigQuery table swap is intentionally pending until BigQuery's post-streaming
-rename window clears.
+Legacy-backed claims have been governed and corrected, and the strict canonical
+BigQuery table swap is complete: canonical =tycho.deltas= holds 50 strict
+=delta@2= rows and the original 96-row log is preserved immutably in
+=tycho.delta_audit_log_20260826=. The Strategy Council now runs in production on
+its own Agent Runtime, dispatcher, and weekly Scheduler job.
 
 Current local persistent store (2026-08-25):
 - observations: 52
@@ -270,7 +272,9 @@ model exposed the design bugs; the final system represents contradictory signals
 honestly instead of forcing demotion.
 
 * Tests
-Last result: =249 passed= (only harmless ADK/dependency deprecation warnings).
+Last result: =370 passed= (only harmless ADK/dependency deprecation warnings),
+up from 249 before the strategy production layer. The strategy suites are =278=
+tests.
 
 The cloud boundary has regression coverage for encoding nested delta JSON fields
 for BigQuery streaming inserts.
@@ -294,7 +298,16 @@ Key test files:
   read-only candidate audit: strict row loading, comparison/observation/
   chronology/hash checks, grounding rerun, noise-pair classification,
   advisory classes, claim resolution, redaction, and exit codes.
-- =tests/test_strategy_*.py= (157 tests) — the strategy council: strict schemas,
+- =tests/test_strategy_dispatcher.py= (34) — the production trigger contract:
+  weekly period derivation, duplicate triggers sharing one lease identity,
+  unknown-field rejection, bounded result parsing, structural-only logs.
+- =tests/test_strategy_deploy.py= (52) — deployment boundaries: the analyst-path
+  guard, the exact Runtime IAM allowlist, readbacks failing closed, and
+  resume/idempotency.
+- =tests/test_strategy_production_checks.py= (28) — the read-only production
+  verifier: forbidden field names, governed-prose leak detection, premise
+  re-resolution, trace pagination.
+- =tests/test_strategy_*.py= (278 tests in total) — the strategy council: strict schemas,
   deterministic evidence rules, the bounded context builder, citation markers,
   the council workflow, leases and write-once persistence, local/cloud parity,
   and the agent/permission boundaries. All synthetic and offline; no model call.
@@ -303,10 +316,15 @@ Key test files:
 Project: =gen-lang-client-0110801105= (number =548847028907=).
 Billing account =0161C8-363868-4415A4= is open and linked.
 
-Current GCP stores (2026-08-26 during strict-table cutover):
-- BigQuery raw table: 92 observations and 96 Delta rows (=46 legacy, =50 v2);
-  the 46 legacy rows remain reserved for the immutable audit table.
-- Candidate: 50 strict =delta@2= rows with zero invariant violations.
+Current GCP stores (2026-08-26, verified read-only after the strict-table
+cutover and again after the Strategy Council deployment):
+- BigQuery observations: 92.
+- Canonical =tycho.deltas=: 50 rows, all strict =delta@2=, 13 meaningful / 37
+  noise, inventory hash =d0b4b08fe59dbc3ad45e0e9668a0eea9a342a39d6d00eaa2f7e2001421ff90bf=.
+- Immutable audit =tycho.delta_audit_log_20260826=: the complete original 96
+  rows (46 legacy + 50 v2), hash
+  =e422901acc4fef75c0fa1ca94fbf112ddc008c86ce89c377e0774c55a5c8f4bc=.
+- =tycho.deltas_v2_candidate= no longer exists.
 - GCS: 92 raw observation objects.
 - Firestore: 38 claims after migration and correction (27 retired legacy-backed
   claims and 11 active v2-backed claims), with historical analyst/generation
@@ -399,53 +417,40 @@ processor; direct trace inspection found no unsafe fields.
    =GOOGLE_API_KEY= still needs rotation before sharing.
 
 * Recommended next session
-The only immediate task is to finish the strict BigQuery table swap after the
-post-streaming rename window. Read the =Gemini-only repair gate= below and
-=docs/gemini-delta-backlog-repair-handoff.org= completely.
+Both gates are closed out. The strict BigQuery table swap completed on
+=2026-08-26= (canonical =tycho.deltas= = 50 strict =delta@2= rows; audit
+=tycho.delta_audit_log_20260826= = the complete original 96 rows; the candidate
+table is gone), and the Strategy Council production path is deployed and
+validated — see =Strategy council — production (2026-08-26)= below.
 
-The strategy council's *local* implementation is already done and is described
-under =Strategy council — local implementation= below; the user authorized it
-ahead of the rename because the candidate audit passed. What is still blocked is
-production: do not deploy the Strategy Council Runtime, create its Scheduler job
-or dispatcher, or run a strategy session over production claims before the swap
-and all read-backs pass.
+The cutover itself was executed and recorded in the *main* worktree
+(=/home/nihar/Work/ATA-Hackathon/tycho=); its evidence lives in that copy of
+=handoff.org=, =docs/semantic-delta-deployment-evidence.org=, and
+=data/semantic_delta_cutover_evidence.json=. This branch re-verified the
+resulting state read-only before deploying; the readback is in
+=docs/strategic-agent-fleet-evidence.org=.
 
-After approximately =2026-08-26T12:28Z=:
-1. Recheck that =deltas= has 96 rows, =deltas_v2_candidate= has 50 strict v2
-   rows, the audit table is absent, and no acquisition execution is active.
-   The read-only candidate audit does the row-level half of this check and
-   writes nothing:
+The next task is the dashboard, in its own document. Before starting it:
+1. Re-run the read-only gates and confirm nothing drifted:
    #+begin_src bash
-   uv run python -m infra.audit_semantic_candidate \
-     --project gen-lang-client-0110801105
+   just audit deltas          # strict Delta@2 audit of the canonical table
+   just strategy-readback     # every deployed strategy resource
+   just strategy-verify       # the latest production session
    #+end_src
-   It exits nonzero on any hard failure. After the swap, pass
-   =--table deltas= to audit the canonical table with the same checks.
-2. Run the resumable apply path with explicit project and region:
-   #+begin_src bash
-   uv run python -m infra.cutover_semantic_deltas \
-     --project gen-lang-client-0110801105 --region us-central1 \
-     --apply --resume
-   #+end_src
-3. Verify canonical =tycho.deltas= has exactly 50 =delta@2= rows, audit
-   =tycho.delta_audit_log_20260826= has exactly 96 original rows including all
-   46 legacy IDs, the candidate name is gone, Scheduler is enabled, and all 11
-   active claims resolve only to canonical v2 evidence.
-4. Verify there was no backfill Pub/Sub, Runtime, or alert traffic, inspect
-   redacted telemetry, and update the repair evidence.
-5. Only then open the production half of
-   =docs/strategic-agent-fleet-handoff.org=: deploy the =Tycho Strategy Council=
-   Runtime (min 0 / max 1) with its own private dispatcher and Scheduler job,
-   leaving =tycho-analyst-push= untouched, and run one production session.
+2. Leave the weekly session alone. =tycho-strategy-weekly= fires Monday
+   =2026-08-31T06:00:00Z= on its own; do not trigger extra production sessions
+   to manufacture a passing card.
 
-The first natural meaningful =delta@2= Runtime validation remains a separate
-pending gate; never manufacture production evidence. Rotate =GOOGLE_API_KEY=
-before local Gemini use or submission.
+The first natural meaningful =delta@2= Analyst end-to-end validation remains a
+separate pending gate; never manufacture production evidence. Rotate
+=GOOGLE_API_KEY= before local Gemini use or submission.
 
 * Semantic Delta production state (2026-08-26)
 Production acquisition runs =semantic-delta@2= in =semantic= mode with Gemini
-3.7 Flash. Job generation =7= contains the strict-schema writer. The final
-physical table swap is NOT complete.
+3.7 Flash. Job generation =7= contains the strict-schema writer. The physical
+table swap completed on =2026-08-26=; it was performed and recorded in the main
+worktree, and re-verified read-only from this branch before the Strategy Council
+deployment.
 
 
 =TYCHO_DIFFER_MODE= controls acquisition:
@@ -564,10 +569,125 @@ Evidence: =docs/strategic-agent-fleet-evidence.org= and
 =data/strategy_local_session.json= (gitignored; regenerate with
 =just strategy-session=).
 
-Next session, in order: finish the BigQuery rename, run the post-swap
-invariants and route read-backs, then deploy the =Tycho Strategy Council=
-Runtime and run one production session. Do not manufacture a conclusion when
-production evidence is insufficient.
+The production half is now complete; see =Strategy council — production
+(2026-08-26)= below.
+
+* Strategy council — production (2026-08-26)
+The Strategy Council production path is deployed and validated. Full evidence:
+=docs/strategic-agent-fleet-evidence.org= (=Production deployment (2026-08-26)=).
+Machine state: =data/strategy_council_production.json= and
+=data/strategy_production_session.json= (both gitignored).
+
+** Resources
+- Agent Runtime: =projects/548847028907/locations/us-central1/reasoningEngines/1864848136766226432=
+  (=Tycho Strategy Council=), =AGENT_IDENTITY=, =google-adk=, min =0= / max =1=.
+- Automatic Registry entry:
+  =projects/gen-lang-client-0110801105/locations/us-central1/agents/agentregistry-00000000-0000-0000-cc6a-d57077c7d164=.
+- Managed identity:
+  =agents.global.proj-548847028907.system.id.goog/resources/aiplatform/projects/548847028907/locations/us-central1/reasoningEngines/1864848136766226432=.
+- Runtime roles, exactly: =roles/datastore.user=, =roles/bigquery.dataViewer=,
+  =roles/bigquery.jobUser=, =roles/telemetry.tracesWriter=. No GCS, Pub/Sub,
+  Memory Bank, Cloud Trace agent, editor, or owner.
+- Private dispatcher: Cloud Run =tycho-strategy-dispatcher= at
+  =https://tycho-strategy-dispatcher-u2s544lf5a-uc.a.run.app=, unauthenticated
+  access disabled, service account
+  =tycho-strategy-dispatcher@gen-lang-client-0110801105.iam.gserviceaccount.com=
+  (=roles/aiplatform.viewer=, =roles/logging.logWriter=, plus =roles/run.invoker=
+  on its own service).
+- Scheduler: =tycho-strategy-weekly=, =0 6 * * 1= =Etc/UTC=, =ENABLED=, OIDC to
+  the dispatcher, attempt deadline =1800s=, next run =2026-08-31T06:00:00Z=.
+
+The analyst path is untouched: =tycho-analyst-push=, =tycho-nightly=,
+=tycho-acquire=, BigQuery counts and the canonical Delta inventory hash,
+Firestore claims (38 documents, 11 active / 27 retired), =analyst_runs= (57), and
+=alerts= (0) are byte-identical before and after.
+
+** The one production session
+Fired through the real Scheduler job at =2026-08-26T17:04:39Z=; dispatcher
+returned HTTP =200= in =24.1s=.
+- Period =2026-08-17T00:00:00Z= → =2026-08-24T00:00:00Z= (ISO week 2026-W34),
+  request ID =scheduler-2026w34=.
+- Session =sts_01M0ZGG793KQK3BTCVPAP3DH2D=, state =completed=.
+- 11 pinned claim versions, manifest hash
+  =eaff310db5b2964af12c2251cbbc0cbb9654bcdeec447ab8bb5b7b629ad76589=
+  (independently recomputed and identical); context 22,866 bytes / ~5,717
+  estimated tokens.
+- 2 cards proposed, *0 passed*, 2 rejected. Both were rejected by deterministic
+  validation before the Challenger was consulted, so there were zero challenges.
+- Brief =brf_2026w35-pap3dh2d=: the deterministic empty brief, 482 bytes, zero
+  citations, zero pinned claims, no URL. Zero cards is a valid result and no
+  conclusion was manufactured.
+- One model call (=gemini-3.5-flash-lite=), 8,047 in / 485 out / 8,532 total
+  tokens, 3,137 ms, cost ≤ =$0.0079= at the documented upper-bound rate.
+
+** Duplicate trigger
+Fired again at =2026-08-26T17:05:36Z=: HTTP =200= in =2.7s=, =skipped=true=, the
+same session and brief, identical counts. Exactly one completed session and one
+brief exist for the period, and the total model calls across every session for
+that period is =1=. The duplicate's Runtime trace
+=15c20693e82c277a9d28f9bc60929053= has two spans and no =generate_content= span
+at all.
+
+** Telemetry
+All =8= persisted traces in the window (4 Runtime invocations, 4 dispatcher
+requests) and =15= dispatcher log entries were inspected directly. Zero
+forbidden field names, and zero hits when searching for the =122= normalized
+snippets of governed prose the session actually read and wrote (claim
+statements and rationales, Delta change statements, grounded quotes, card text,
+brief prose). Production session trace:
+=e6c084c74e5fadadf72da735f3ba47b8=.
+
+** Two earlier failed attempts, and the defect they found
+The first trigger and Cloud Scheduler's own retry both failed at the Strategist
+stage. That is recorded honestly and is the strongest evidence the failure path
+works: HTTP =503= both times, two durable =failed= sessions, lease =attempt=2=
+and reclaimable, sanitized errors only, zero briefs, zero claim mutations.
+
+Cause: =strategy_agent/invoker.py= read only the final *text* response, but ADK
+=mode="task"= agents deliver structured output as the arguments of a
+=finish_task= function call. The invoker had never been exercised against a real
+provider before this run. Fixed; the Runtime package was updated at
+=2026-08-26T16:56:49Z= and the next trigger completed.
+
+** Other defects fixed during deployment
+1. Cloud Trace v1 =pageSize= is a scan budget, not a result count — one page
+   returned 1 of 8 matching traces. =fetch_traces= now paginates to exhaustion
+   and fails closed rather than truncate.
+2. The brief was named after =period.to=, which is exclusive, so a
+   Monday-aligned week 34 report was labelled week 35. =period_week()= now uses
+   the last moment inside the period. The stored production brief
+   =brf_2026w35-pap3dh2d= predates the fix and covers week 34; briefs are
+   write-once and it was not rewritten.
+3. =gcloud scheduler jobs update http= takes =--update-headers=, not
+   =--headers=; the idempotent re-apply path is fixed per verb.
+4. Cloud Scheduler normalizes the target URI with a trailing slash; endpoints
+   are now compared modulo one trailing slash, and a different host is still
+   drift.
+
+** New modules and commands
+- =pipeline/strategy_dispatcher.py= — the private authenticated dispatcher.
+- =infra/deploy_strategy_council.py= — resumable, idempotent nine-step deploy
+  that structurally cannot modify the analyst path.
+- =infra/verify_strategy_production.py= — read-only session, telemetry, and
+  duplicate-trigger verification.
+
+#+begin_src bash
+just strategy-plan        # print the deployment plan; contacts nothing
+just strategy-deploy      # PRODUCTION: resumable deploy (interactive confirmation)
+just strategy-readback    # read every deployed resource back
+just strategy-snapshot    # record the untouched acquisition/Analyst state
+just strategy-verify      # re-verify the latest production session
+just strategy-telemetry   # re-inspect traces and logs for leakage
+#+end_src
+
+** Still open
+- The dashboard is not built; that is the next document.
+- No strategy card has passed in production yet. The three active entities each
+  publish through one source family, so a card must clear both diversity rules
+  and the conclusion-language policy. Next scheduled session:
+  =2026-08-31T06:00:00Z=.
+- The first natural meaningful =delta@2= Analyst end-to-end validation is still
+  a separate pending gate, unchanged by this work.
 
 * Gemini-only repair gate (2026-08-26)
 The four pre-swap gates are complete, but final table cutover is deliberately
