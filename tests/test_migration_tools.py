@@ -13,6 +13,7 @@ from infra.backfill_semantic_deltas import (
 from infra.cutover_semantic_deltas import (
     CutoverError,
     rename_table,
+    run_cutover,
     subscription_backlog_readback,
 )
 from infra.migrate_legacy_claims import _retire_claim
@@ -354,3 +355,202 @@ def test_table_swap_reports_streaming_blocker_without_fallback():
     with pytest.raises(CutoverError, match="streaming data"):
         rename_table(client, "project.tycho.deltas", "delta_audit_log_20260826")
     assert client.queries
+
+
+class _CutoverBigQueryClient:
+    """Minimal BigQuery stand-in whose only state is the set of table names."""
+
+    def __init__(self, tables: set[str]) -> None:
+        self.tables = set(tables)
+
+    def get_table(self, table):
+        if table.rsplit(".", 1)[-1] not in self.tables:
+            raise NotFound(table)
+        return object()
+
+
+class _CutoverCloud:
+    """Fake cloud for `run_cutover`: table renames plus Scheduler transitions."""
+
+    def __init__(self, tables: set[str], *, rename_failures: dict[str, str] | None = None):
+        self.client = _CutoverBigQueryClient(tables)
+        self.rename_failures = dict(rename_failures or {})
+        self.renames: list[tuple[str, str]] = []
+        self.scheduler_calls: list[str] = []
+
+    # --- monkeypatch targets -------------------------------------------------
+    def bigquery_client(self, project):
+        return self.client
+
+    def pause(self, project, region, scheduler):
+        self.scheduler_calls.append("pause")
+
+    def resume(self, project, region, scheduler):
+        self.scheduler_calls.append("resume")
+
+    def scheduler_readback(self, project, region, scheduler):
+        state = "PAUSED" if self.scheduler_calls[-1:] == ["pause"] else "ENABLED"
+        return {"name": scheduler, "state": state, "schedule": "0 2 * * *"}
+
+    def rename_table(self, client, source, destination_name):
+        short = source.rsplit(".", 1)[-1]
+        blocker = self.rename_failures.get(short)
+        if blocker is not None:
+            raise CutoverError(blocker)
+        self.client.tables.discard(short)
+        self.client.tables.add(destination_name)
+        self.renames.append((short, destination_name))
+
+    def inventory(self, client, table):
+        return {"table": table, "row_count": 50}
+
+    def invariants(self, client, table):
+        return {
+            "rows": 50,
+            "bad_schema_version": 0,
+            "bad_diff_kind": 0,
+            "bad_generator": 0,
+            "bad_prompt": 0,
+            "missing_comparison": 0,
+            "bad_meaningful_bounds": 0,
+            "meaningful_without_scope": 0,
+            "bad_noise": 0,
+            "duplicate_comparison_ids": 0,
+        }
+
+    def pair_invariants(self, client, *, raw_table, canonical_table, observations_table):
+        return {
+            "legacy_pairs": 46,
+            "missing_or_wrong_replacements": 0,
+            "duplicate_pairs": 0,
+            "bad_observation_joins": 0,
+        }
+
+    def subscription(self, project, subscription):
+        return {"name": subscription, "push_endpoint": "https://dispatcher"}
+
+    def backlog(self, project, subscription, **kwargs):
+        return {"observed_values": [0], "zero_pending_messages": True}
+
+    def acquisition(self, project, region):
+        return {"active": [], "observed_executions": 9}
+
+
+def _install_cutover_cloud(monkeypatch, cloud: _CutoverCloud) -> None:
+    module = "infra.cutover_semantic_deltas"
+    monkeypatch.setattr(f"{module}.bigquery.Client", cloud.bigquery_client)
+    monkeypatch.setattr(f"{module}.scheduler_pause", cloud.pause)
+    monkeypatch.setattr(f"{module}.scheduler_resume", cloud.resume)
+    monkeypatch.setattr(f"{module}.scheduler_readback", cloud.scheduler_readback)
+    monkeypatch.setattr(f"{module}.rename_table", cloud.rename_table)
+    monkeypatch.setattr(f"{module}.table_inventory", cloud.inventory)
+    monkeypatch.setattr(f"{module}.canonical_invariants", cloud.invariants)
+    monkeypatch.setattr(f"{module}.pair_invariants", cloud.pair_invariants)
+    monkeypatch.setattr(f"{module}.subscription_readback", cloud.subscription)
+    monkeypatch.setattr(f"{module}.subscription_backlog_readback", cloud.backlog)
+    monkeypatch.setattr(f"{module}.verify_no_active_acquisition", cloud.acquisition)
+    monkeypatch.setattr(f"{module}.ensure_candidate", lambda *a, **k: None)
+    monkeypatch.setattr(f"{module}.copy_validated_v2_rows", lambda *a, **k: None)
+
+
+def _run_apply(evidence_path: Path):
+    return run_cutover(
+        project="project",
+        dataset="tycho",
+        region="us-central1",
+        scheduler="tycho-nightly",
+        subscription="tycho-analyst-push",
+        candidate_name="deltas_v2_candidate",
+        audit_name="delta_audit_log_20260826",
+        evidence_path=evidence_path,
+        apply=True,
+        resume=True,
+    )
+
+
+def test_cutover_resumes_scheduler_when_streaming_blocks_the_first_rename(
+    monkeypatch, tmp_path
+):
+    """The original blocker: nothing renamed, so `deltas` is still authoritative."""
+    cloud = _CutoverCloud(
+        {"deltas", "deltas_v2_candidate", "observations"},
+        rename_failures={
+            "deltas": "BigQuery table rename is blocked by streaming data; "
+            "source=project.tycho.deltas"
+        },
+    )
+    _install_cutover_cloud(monkeypatch, cloud)
+    evidence_path = tmp_path / "cutover.json"
+
+    with pytest.raises(CutoverError, match="streaming data"):
+        _run_apply(evidence_path)
+
+    assert cloud.renames == []
+    assert cloud.client.tables >= {"deltas", "deltas_v2_candidate"}
+    assert "delta_audit_log_20260826" not in cloud.client.tables
+    assert cloud.scheduler_calls == ["pause", "resume"]
+
+    evidence = json.loads(evidence_path.read_text())
+    assert evidence["scheduler_resumed"] is True
+    assert evidence["scheduler_final"]["state"] == "ENABLED"
+    assert "archive_renamed" not in evidence
+
+
+def test_cutover_leaves_scheduler_paused_when_second_rename_fails(monkeypatch, tmp_path):
+    """Archive rename succeeded, so canonical `deltas` is absent: stay paused."""
+    cloud = _CutoverCloud(
+        {"deltas", "deltas_v2_candidate", "observations"},
+        rename_failures={"deltas_v2_candidate": "rename destination already exists"},
+    )
+    _install_cutover_cloud(monkeypatch, cloud)
+    evidence_path = tmp_path / "cutover.json"
+
+    with pytest.raises(CutoverError, match="rename destination already exists"):
+        _run_apply(evidence_path)
+
+    assert cloud.renames == [("deltas", "delta_audit_log_20260826")]
+    assert "deltas" not in cloud.client.tables
+    assert {"delta_audit_log_20260826", "deltas_v2_candidate"} <= cloud.client.tables
+    assert cloud.scheduler_calls == ["pause"]
+
+    evidence = json.loads(evidence_path.read_text())
+    assert evidence["scheduler_resumed"] is False
+    assert evidence["scheduler_left_paused"] is True
+    assert evidence["archive_renamed"] is True
+    assert evidence["scheduler_final"]["state"] == "PAUSED"
+    state = evidence["resumable_state"]
+    assert state["canonical_exists"] is False
+    assert state["candidate_exists"] is True
+    assert state["audit_exists"] is True
+    assert "--apply --resume" in evidence["resume_command"]
+
+
+def test_partial_cutover_state_remains_resumable(monkeypatch, tmp_path):
+    """The paused partial state completes on the documented resume path."""
+    failing = _CutoverCloud(
+        {"deltas", "deltas_v2_candidate", "observations"},
+        rename_failures={"deltas_v2_candidate": "rename destination already exists"},
+    )
+    _install_cutover_cloud(monkeypatch, failing)
+    evidence_path = tmp_path / "cutover.json"
+    with pytest.raises(CutoverError):
+        _run_apply(evidence_path)
+    assert failing.scheduler_calls == ["pause"]
+
+    resumed = _CutoverCloud(failing.client.tables)
+    _install_cutover_cloud(monkeypatch, resumed)
+    evidence = _run_apply(evidence_path)
+
+    assert resumed.renames == [("deltas_v2_candidate", "deltas")]
+    assert "deltas" in resumed.client.tables
+    assert "delta_audit_log_20260826" in resumed.client.tables
+    assert "deltas_v2_candidate" not in resumed.client.tables
+    assert resumed.scheduler_calls == ["pause", "resume"]
+    assert evidence["candidate_renamed"] is True
+    assert "archive_renamed" not in evidence
+    assert evidence["scheduler_resumed"] is True
+    assert evidence["scheduler_final"]["state"] == "ENABLED"
+
+    stored = json.loads(evidence_path.read_text())
+    assert stored["scheduler_resumed"] is True
+    assert "resumable_state" not in stored

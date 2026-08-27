@@ -13,6 +13,9 @@ natural noise =delta@2= outcomes. No historical semantic result entered
 production, and no meaningful natural change occurred during this validation
 window; meaningful validation remains pending a scheduled natural change.
 
+The strict Delta@2 physical table cutover completed on =2026-08-26T13:11Z=;
+see =Strict Delta@2 table cutover completed= below for the read-backs.
+
 * Final implementation contract
 - Model: =gemini-3.7-flash= through Vertex/Agent Platform ADC at =global=.
 - Generator: =gemini-3.7-flash@semantic-differ-1=.
@@ -249,10 +252,15 @@ that semantic Delta is intended to prevent; they were not rewritten during this
 migration.
 
 * Current gate and rollback
-Current acquisition mode is =semantic= and the updated acquisition image is
-deployed. Operational rollback pauses Scheduler and restores the table/image
-checkpoint; it never enables Python Delta generation or changes the Runtime
-route.
+Current acquisition mode is =semantic=, the updated acquisition image is
+deployed, and canonical =tycho.deltas= is the strict Delta@2 table. Operational
+rollback pauses Scheduler and restores the table/image checkpoint; it never
+enables Python Delta generation or changes the Runtime route.
+
+After the swap, rollback renames canonical =deltas= to a timestamped
+=deltas_failed_v2_*= name and renames =delta_audit_log_20260826= back to
+=deltas=. That archive contains both the 46 original legacy rows and all 50 v2
+rows, so v2-backed claims still resolve after rollback.
 
 Deletion of either physical table remains separate destructive work requiring
 approval.
@@ -281,11 +289,146 @@ The resumable repair completed before the table swap:
   import, non-publishing historical generation, claim retirement history, and
   same-dataset table rename/streaming blocker behavior. The suite is =72 passed=.
 
-The final table swap is intentionally still pending: BigQuery currently refuses
-renaming the raw table with the exact blocker =Cannot rename ... because it has
-streaming data=. BigQuery documents that this restriction can persist for about
-five hours after the last streaming operation even when the exposed buffer is
-empty. The last raw-table write was at approximately =2026-08-26T07:28Z=;
-retry after the service-side window with a read-only buffer check. No
-copy/delete workaround was used. The candidate remains intact with 50/50
-strict v2 rows and zero candidate invariant violations.
+The final table swap was blocked at that point: BigQuery refused renaming the
+raw table with the exact blocker =Cannot rename ... because it has streaming
+data=. BigQuery documents that this restriction can persist for about five
+hours after the last streaming operation even when the exposed buffer is empty.
+The last raw-table write was at approximately =2026-08-26T07:28Z=. No
+copy/delete workaround was used, and the candidate stayed intact with 50/50
+strict v2 rows and zero candidate invariant violations until the window
+cleared.
+
+* Cutover partial-failure safety fix (2026-08-26)
+=run_cutover()= previously resumed Cloud Scheduler unconditionally in its
+=finally= block. That is unsafe in exactly one case: the old canonical table is
+successfully renamed to the audit name and renaming the candidate to =deltas=
+then fails. Resuming there would let scheduled acquisition run while canonical
+=deltas= is absent.
+
+The corrected rule reads the real physical table names instead of trusting how
+far the cutover believed it got:
+- resume after a successful swap and full read-back;
+- resume when the archive rename did not commit and the original =deltas= table
+  is still authoritative — this is the original streaming-blocker case;
+- otherwise leave Scheduler paused, because canonical =deltas= is absent or
+  unverified. An ambiguous rename failure therefore fails closed.
+
+A paused partial state writes =scheduler_left_paused=, the exact
+=resumable_state= physical-table report, and the documented =resume_command=
+into the evidence file, and prints the same bounded report on stderr. Evidence
+is written on both success and failure.
+
+Regression coverage in =tests/test_migration_tools.py=:
+- =test_cutover_resumes_scheduler_when_streaming_blocks_the_first_rename=;
+- =test_cutover_leaves_scheduler_paused_when_second_rename_fails=;
+- =test_partial_cutover_state_remains_resumable=.
+
+The suite is =95 passed=. Ruff is clean over every source package; the only
+three repository Ruff findings are in the untracked =docs/diagrams/hero.py=,
+which predates this work and was deliberately left unmodified.
+
+* Strict Delta@2 table cutover completed (2026-08-26T13:11Z)
+The BigQuery post-streaming window cleared and the bounded swap ran to
+completion:
+
+#+begin_src shell
+uv run python -m infra.cutover_semantic_deltas \
+  --project gen-lang-client-0110801105 \
+  --region us-central1 \
+  --apply --resume
+#+end_src
+
+Preflight read-backs immediately before the swap matched the recorded pre-swap
+state exactly: raw =deltas= 96 rows (=46 legacy, =50 v2=), candidate 50 strict
+v2 rows with zero invariant violations, audit table absent, exposed
+=streamingBuffer= metadata absent on both tables, 46 legacy pairs with zero
+missing or duplicate replacements, 11 active claims resolving only to candidate
+v2 evidence, Scheduler enabled, no active acquisition, job generation =7= at
+digest =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=
+in =semantic= mode, and zero Pub/Sub backlog on the unchanged dispatcher route.
+
+Two same-dataset atomic renames were executed inside a bounded Scheduler pause:
+
+| Time (UTC) | Rename |
+|---+---|
+| =2026-08-26T13:11:13Z= | =tycho.deltas= -> =tycho.delta_audit_log_20260826= |
+| =2026-08-26T13:11:16Z= | =tycho.deltas_v2_candidate= -> =tycho.deltas= |
+
+No table was deleted or truncated, no rows were rewritten, and no copy/delete
+workaround was used. Scheduler was paused at =13:10:53Z= and resumed at
+=13:11:40Z= after the full read-back.
+
+** Post-swap canonical state
+Canonical =gen-lang-client-0110801105.tycho.deltas=:
+- rows: =50=, all =schema_version=delta@2=;
+- =diff_kind=semantic=, =generated_by=gemini-3.7-flash@semantic-differ-1=, and
+  =prompt_version=semantic-delta@2= violations: =0= each;
+- missing comparison IDs: =0=; duplicate comparison IDs: =0=; duplicate Delta
+  IDs: =0=;
+- meaningful =13= with =53= grounded changes; noise =37=;
+- meaningful bound violations, meaningful-without-scope, and malformed-noise
+  counts: =0= each;
+- invalid observation joins: =0= against the =92= immutable Observations;
+- partitioned on =computed_at=, clustered on =(entity, source)=, described as
+  =Tycho canonical strict Delta@2 table=.
+
+Archive =gen-lang-client-0110801105.tycho.delta_audit_log_20260826=:
+- rows: =96= — the complete original inventory;
+- legacy rows and distinct legacy Delta IDs: =46=;
+- v2 rows: =50=; distinct Delta IDs: =96=;
+- =delta_id= inventory hash
+  =e422901acc4fef75c0fa1ca94fbf112ddc008c86ce89c377e0774c55a5c8f4bc=, identical
+  to the pre-swap raw-table hash.
+
+=tycho.deltas_v2_candidate= no longer exists. Every one of the =46= legacy
+observation pairs still maps to exactly one canonical replacement, with zero
+duplicate pairs.
+
+** Post-swap read-only audit
+#+begin_src shell
+uv run python -m infra.audit_semantic_candidate \
+  --project gen-lang-client-0110801105 --table deltas
+#+end_src
+
+Exit code =0=, =0= writes, =0= model provider calls: 50 rows loaded and
+revalidated through the strict model, 50 observation pairs hash-verified, 61
+raw payloads read, =0= hard failures, and 13 advisories — all
+=cross_source_mirrored_evidence= for =claude_code= between =github_releases=
+and =website_changelog=, none of which fail the run. All 11 active claims are
+facts at =confirmed= confidence, resolve to meaningful canonical v2 evidence,
+and retain valid lifecycle links.
+
+** Route and traffic
+Unchanged by the cutover and re-read afterwards: Scheduler =tycho-nightly=
+=ENABLED= at =0 2 * * *= =Etc/UTC=; job =tycho-acquire= generation =7= at the
+same image digest with =TYCHO_DIFFER_MODE=semantic=; no acquisition execution
+active; subscription =tycho-analyst-push= on topic =tycho-deltas= with the
+dispatcher endpoint, the =tycho-agent-dispatcher= OIDC identity, the matching
+audience, and a =600=-second ack deadline.
+
+The cutover itself emitted nothing: zero Pub/Sub publishes, zero push requests,
+zero dispatcher requests, zero Runtime invocations, zero analyst actions, zero
+claim mutations, and zero alerts across =2026-08-26T13:00Z–13:16Z=. Sixteen
+consecutive =num_undelivered_messages= points were =0=. Firestore held =38=
+claim documents (=11= active, =27= retired) before and after, with no document
+mutated inside the window.
+
+** Telemetry inspection
+Cloud Trace returned =0= traces for the window, consistent with no Runtime or
+dispatcher activity. 175 Cloud Logging entries were scanned: BigQuery
+data-access audit records plus two Cloud Scheduler pause/resume entries. Every
+match for =prompt=, =quote=, =evidence_before=, =evidence_after=, =statement=,
+=summary=, =triage_reason=, and =content_ref= resolved to a BigQuery *column
+name* — either inside query text or inside the =tableDataRead= column-access
+list. No row values, prompts, responses, model output, source snapshots,
+evidence text, or claim content appeared. =system_instruction=, =llm_request=,
+=llm_response=, =candidates=, =model_output=, and =rationale= had zero
+occurrences.
+
+** Remaining gate
+The first natural meaningful =delta@2= Runtime validation remains pending a
+natural scheduled change. No acquisition or Gemini call was run to manufacture
+production evidence.
+
+Machine evidence: =data/semantic_delta_cutover_evidence.json= and
+=data/semantic_delta_production.json=.

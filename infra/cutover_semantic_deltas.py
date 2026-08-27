@@ -9,6 +9,11 @@ renames the candidate to ``deltas``.  No table is deleted or truncated.
 ``--rollback`` performs the documented operational rollback: pause Scheduler,
 rename the failed canonical table to a timestamped name, rename the audit table
 back to ``deltas``, and leave acquisition semantic-only.
+
+Scheduler is resumed only when acquisition would be safe: either the swap
+completed and read back, or nothing was renamed and the original ``deltas``
+table is still authoritative.  A failure at or after the archive rename leaves
+Scheduler paused and reports the exact resumable physical-table state.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -403,6 +409,42 @@ def _write_evidence(path: Path, evidence: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _canonical_still_authoritative(
+    client: bigquery.Client,
+    *,
+    raw: str,
+    audit: str,
+) -> bool:
+    """True when the archive rename did not commit and ``deltas`` is unchanged.
+
+    This reads the real physical names rather than trusting how far the cutover
+    believed it got, so an ambiguous rename failure fails closed.
+    """
+    try:
+        return table_exists(client, raw) and not table_exists(client, audit)
+    except Exception:  # noqa: BLE001 - fail closed and leave Scheduler paused
+        return False
+
+
+def _physical_state(
+    client: bigquery.Client,
+    *,
+    raw: str,
+    candidate: str,
+    audit: str,
+) -> dict[str, Any]:
+    """Report which physical table names exist, for a paused partial cutover."""
+    state: dict[str, Any] = {}
+    for label, table in (("canonical", raw), ("candidate", candidate), ("audit", audit)):
+        try:
+            state[f"{label}_table"] = table
+            state[f"{label}_exists"] = table_exists(client, table)
+        except Exception as exc:  # noqa: BLE001 - the state report must not raise
+            state[f"{label}_exists"] = None
+            state[f"{label}_lookup_error"] = str(exc)
+    return state
+
+
 def run_cutover(
     *,
     project: str,
@@ -520,6 +562,7 @@ def run_cutover(
 
     scheduler_pause(project, region, scheduler)
     paused = True
+    swap_verified = False
     try:
         evidence["scheduler_paused"] = True
         evidence["acquisition_during_cutover"] = verify_no_active_acquisition(project, region)
@@ -565,12 +608,49 @@ def run_cutover(
         )
         evidence["scheduler_after"] = scheduler_readback(project, region, scheduler)
         evidence["subscription_after"] = subscription_readback(project, subscription)
+        swap_verified = True
         _write_evidence(evidence_path, evidence)
     finally:
         if paused:
-            scheduler_resume(project, region, scheduler)
-            evidence["scheduler_resumed"] = True
-            evidence["scheduler_final"] = scheduler_readback(project, region, scheduler)
+            canonical_intact = _canonical_still_authoritative(
+                client, raw=raw, audit=audit
+            )
+            if swap_verified or canonical_intact:
+                scheduler_resume(project, region, scheduler)
+                evidence["scheduler_resumed"] = True
+                evidence["scheduler_final"] = scheduler_readback(project, region, scheduler)
+            else:
+                # The archive rename was attempted, so canonical ``deltas`` is
+                # absent or unverified.  Resuming here would let acquisition run
+                # against a missing canonical table.
+                evidence["scheduler_resumed"] = False
+                evidence["scheduler_left_paused"] = True
+                evidence["resumable_state"] = _physical_state(
+                    client, raw=raw, candidate=candidate, audit=audit
+                )
+                evidence["resume_command"] = (
+                    "uv run python -m infra.cutover_semantic_deltas "
+                    f"--project {project} --region {region} --apply --resume"
+                )
+                try:
+                    evidence["scheduler_final"] = scheduler_readback(
+                        project, region, scheduler
+                    )
+                except Exception as exc:  # noqa: BLE001 - never mask the failure
+                    evidence["scheduler_final_error"] = str(exc)
+                print(
+                    json.dumps(
+                        {
+                            "cutover": "partial",
+                            "scheduler": f"{scheduler} LEFT PAUSED",
+                            "resumable_state": evidence["resumable_state"],
+                            "resume_command": evidence["resume_command"],
+                            "evidence": str(evidence_path),
+                        },
+                        sort_keys=True,
+                    ),
+                    file=sys.stderr,
+                )
             _write_evidence(evidence_path, evidence)
     return evidence
 
