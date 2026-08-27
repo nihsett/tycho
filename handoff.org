@@ -657,7 +657,9 @@ provider before this run. Fixed; the Runtime package was updated at
    Monday-aligned week 34 report was labelled week 35. =period_week()= now uses
    the last moment inside the period. The stored production brief
    =brf_2026w35-pap3dh2d= predates the fix and covers week 34; briefs are
-   write-once and it was not rewritten.
+   write-once and it was not rewritten. The fix is now deployed: the Runtime
+   package was updated in place at =2026-08-27T05:43:24Z=, with Runtime IAM,
+   the dispatcher, and the Scheduler job unchanged on readback.
 3. =gcloud scheduler jobs update http= takes =--update-headers=, not
    =--headers=; the idempotent re-apply path is fixed per verb.
 4. Cloud Scheduler normalizes the target URI with a trailing slash; endpoints

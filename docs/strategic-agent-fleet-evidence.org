@@ -574,6 +574,10 @@ refusing a deployment that never finished.
    regression tests, and the pre-existing mid-week synthetic case is unchanged.
    *The one stored production brief predates this fix*: =brf_2026w35-pap3dh2d=
    covers ISO week 2026-W34. Briefs are write-once and it was not rewritten.
+   *This fix is now deployed*: the Runtime package was updated in place at
+   =2026-08-27T05:43:24Z= (no new Runtime; Runtime IAM, the dispatcher, its
+   service account and invoker binding, and the Scheduler job all read back
+   unchanged), so the next weekly brief is labelled for the week it covers.
 4. *=gcloud scheduler jobs update http= rejects =--headers=.* It takes
    =--update-headers= for the same map, so the idempotent re-apply path failed
    on its first real use. Fixed per verb.
