@@ -27,9 +27,13 @@ hash gating remain deterministic; changed clean pairs use the grounded Gemini
 mode. Agent Runtime is the governed claim writer. Semantic attempts use durable
 generation leases and redacted metadata. The historical backlog repair has
 validated and inserted 46 Gemini =delta@2= replacements without publication.
-Legacy-backed claims have been governed and corrected, but the strict canonical
-BigQuery table swap is intentionally pending until BigQuery's post-streaming
-rename window clears.
+Legacy-backed claims have been governed and corrected, and the strict canonical
+BigQuery table swap completed on =2026-08-26T13:11Z=: canonical =tycho.deltas=
+now holds exactly 50 strict =delta@2= rows and the complete 96-row original log
+is preserved immutably in =tycho.delta_audit_log_20260826=.
+
+The Gemini-only backlog-repair gate is complete. The next task is
+=docs/strategic-agent-fleet-handoff.org=.
 
 Current local persistent store (2026-08-25):
 - observations: 52
@@ -96,7 +100,7 @@ just check        # lock check, lint, compile, pytest
 just local-github # uv run python -m pipeline.run_local --source github_releases
 just local-web    # uv run python -m pipeline.run_local --source website_changelog
 just local-stats  # local SQLite store counts
-just audit        # read-only strict Delta@2 candidate audit
+just audit deltas # read-only strict Delta@2 audit of the canonical table
 just cutover-check
 tail -f data/fleet.log
 crontab -l
@@ -265,7 +269,14 @@ model exposed the design bugs; the final system represents contradictory signals
 honestly instead of forcing demotion.
 
 * Tests
-Last result: =92 passed= (only harmless ADK/dependency deprecation warnings).
+Last result: =95 passed= (only harmless ADK/dependency deprecation warnings).
+
+Ruff is clean over every source package. =just lint= runs =ruff check .= and
+currently reports three findings in the untracked =docs/diagrams/hero.py=
+(E401, E731, E702). That file is diagram tooling that predates this work and
+was deliberately left unmodified, so =just check= stops at =lint=; run the
+gates individually (=just lock-check=, =just compile=, =just test=, and Ruff
+scoped to the source packages) until that file is cleaned up or excluded.
 
 The cloud boundary has regression coverage for encoding nested delta JSON fields
 for BigQuery streaming inserts.
@@ -284,7 +295,9 @@ Key test files:
 - =tests/test_gemini_analyst.py=
 - =tests/test_analyst_scenarios.py=
 - =tests/test_migration_tools.py= — backfill resume/idempotency, no-publish,
-  governed claim repair, table rename, and streaming-window coverage.
+  governed claim repair, table rename, streaming-window coverage, and the
+  cutover Scheduler-safety cases (streaming blocker resumes; failed second
+  rename stays paused; that partial state remains resumable).
 - =tests/test_candidate_audit.py= — synthetic, cloud-free coverage of the
   read-only candidate audit: strict row loading, comparison/observation/
   chronology/hash checks, grounding rerun, noise-pair classification,
@@ -294,10 +307,14 @@ Key test files:
 Project: =gen-lang-client-0110801105= (number =548847028907=).
 Billing account =0161C8-363868-4415A4= is open and linked.
 
-Current GCP stores (2026-08-26 during strict-table cutover):
-- BigQuery raw table: 92 observations and 96 Delta rows (=46 legacy, =50 v2);
-  the 46 legacy rows remain reserved for the immutable audit table.
-- Candidate: 50 strict =delta@2= rows with zero invariant violations.
+Current GCP stores (2026-08-26, after the strict-table cutover):
+- BigQuery observations: 92.
+- Canonical =tycho.deltas=: 50 rows, all strict =delta@2=, with zero invariant
+  violations (13 meaningful / 37 noise).
+- Immutable audit =tycho.delta_audit_log_20260826=: the complete original
+  96-row log (46 legacy + 50 v2), =delta_id= hash
+  =e422901acc4fef75c0fa1ca94fbf112ddc008c86ce89c377e0774c55a5c8f4bc=.
+- =tycho.deltas_v2_candidate= no longer exists.
 - GCS: 92 raw observation objects.
 - Firestore: 38 claims after migration and correction (27 retired legacy-backed
   claims and 11 active v2-backed claims), with historical analyst/generation
@@ -390,35 +407,16 @@ processor; direct trace inspection found no unsafe fields.
    =GOOGLE_API_KEY= still needs rotation before sharing.
 
 * Recommended next session
-The only immediate task is to finish the strict BigQuery table swap after the
-post-streaming rename window. Read the =Gemini-only repair gate= below and
-=docs/gemini-delta-backlog-repair-handoff.org= completely. Do not begin the
-strategic-agent fleet before the swap and all read-backs pass.
+The Gemini-only backlog-repair gate is complete, including the strict BigQuery
+table swap and all read-backs. The next task is
+=docs/strategic-agent-fleet-handoff.org=.
 
-After approximately =2026-08-26T12:28Z=:
-1. Recheck that =deltas= has 96 rows, =deltas_v2_candidate= has 50 strict v2
-   rows, the audit table is absent, and no acquisition execution is active.
-   The read-only candidate audit does the row-level half of this check and
-   writes nothing:
-   #+begin_src bash
-   uv run python -m infra.audit_semantic_candidate \
-     --project gen-lang-client-0110801105
-   #+end_src
-   It exits nonzero on any hard failure. After the swap, pass
-   =--table deltas= to audit the canonical table with the same checks.
-2. Run the resumable apply path with explicit project and region:
-   #+begin_src bash
-   uv run python -m infra.cutover_semantic_deltas \
-     --project gen-lang-client-0110801105 --region us-central1 \
-     --apply --resume
-   #+end_src
-3. Verify canonical =tycho.deltas= has exactly 50 =delta@2= rows, audit
-   =tycho.delta_audit_log_20260826= has exactly 96 original rows including all
-   46 legacy IDs, the candidate name is gone, Scheduler is enabled, and all 11
-   active claims resolve only to canonical v2 evidence.
-4. Verify there was no backfill Pub/Sub, Runtime, or alert traffic, inspect
-   redacted telemetry, and update the repair evidence.
-5. Only then hand Luna =docs/strategic-agent-fleet-handoff.org=.
+The read-only canonical audit stays useful and writes nothing:
+#+begin_src bash
+uv run python -m infra.audit_semantic_candidate \
+  --project gen-lang-client-0110801105 --table deltas
+#+end_src
+It exits nonzero on any hard failure.
 
 The first natural meaningful =delta@2= Runtime validation remains a separate
 pending gate; never manufacture production evidence. Rotate =GOOGLE_API_KEY=
@@ -427,7 +425,7 @@ before local Gemini use or submission.
 * Semantic Delta production state (2026-08-26)
 Production acquisition runs =semantic-delta@2= in =semantic= mode with Gemini
 3.7 Flash. Job generation =7= contains the strict-schema writer. The final
-physical table swap is NOT complete.
+physical table swap completed at =2026-08-26T13:11Z=.
 
 
 =TYCHO_DIFFER_MODE= controls acquisition:
@@ -444,10 +442,11 @@ boundaries. Mixed-product changelogs must connect changes to the configured
 entity; this removed unrelated ChatGPT entries from Codex output. Durable
 Firestore/SQLite leases retry failed or expired pairs.
 
-The earlier additive schema migration kept all rows loadable. The strict-table
-repair now has two tables: canonical =deltas= still has 96 mixed rows, while
-=deltas_v2_candidate= has 50 strict v2 rows. The immutable audit table does not
-exist until the final rename.
+The earlier additive schema migration kept all rows loadable. After the strict
+table swap there are exactly two Delta tables: canonical =deltas= with 50
+strict v2 rows, and the immutable =delta_audit_log_20260826= with the complete
+original 96 rows. The candidate name is gone. Only =deltas= is a normal
+application read source; the audit table is migration/rollback evidence.
 
 Read-only historical replay:
 =uv run python -m experiments.semantic_delta_replay --project gen-lang-client-0110801105 --output data/semantic_delta_replay.json=
@@ -456,14 +455,15 @@ Operational rollback is implemented by
 =infra/cutover_semantic_deltas.py --rollback= and preserves
 =TYCHO_DIFFER_MODE=semantic=; it never re-enables the Python differ.
 
-Current verification: =72= tests pass. All 42 saved historical replay outputs
+Current verification: =95= tests pass. All 42 saved historical replay outputs
 were reused without cloud writes; one fabricated before-quote was rejected and
 its targeted retry passed. Four missing shadow-only pairs used the allowed four
 Gemini calls. The 46 historical replacements contain 13 meaningful and 33 noise
-Deltas. Together with four natural post-authority v2 noise rows, the candidate
-contains 50 strict v2 rows. Firestore now has 27 retired legacy claims and 11
-active v2-backed claims. Backfill and claim correction produced no Pub/Sub
-publication or alerts; Pub/Sub still targets the Runtime dispatcher.
+Deltas. Together with four natural post-authority v2 noise rows, canonical
+=tycho.deltas= contains 50 strict v2 rows. Firestore now has 27 retired legacy
+claims and 11 active v2-backed claims. Backfill, claim correction, and the
+table swap produced no Pub/Sub publication, Runtime invocation, or alert;
+Pub/Sub still targets the Runtime dispatcher.
 
 Evidence:
 - =docs/semantic-delta-deployment-evidence.org=
@@ -471,6 +471,7 @@ Evidence:
 - =data/semantic_delta_replay_retry.json=
 - =data/semantic_delta_schema_migration.json=
 - =data/semantic_delta_production.json=
+- =data/semantic_delta_cutover_evidence.json=
 - =data/runtime_natural_trace_inspection.json=
 
 Production authority is =TYCHO_DIFFER_MODE=semantic=. Repair artifacts are
@@ -483,9 +484,10 @@ A meaningful =delta@2= and its end-to-end Runtime/trace validation remain
 pending a natural scheduled change. Do not replay history or manufacture a
 production change.
 
-* Read-only candidate audit (2026-08-26)
-=infra/audit_semantic_candidate.py= is the reusable replacement for the earlier
-ad-hoc candidate inspection. It reads BigQuery, GCS, and Firestore only: no
+* Read-only strict Delta@2 audit (2026-08-26)
+=infra/audit_semantic_candidate.py= audits any strict Delta@2 table. Pass
+=--table deltas= for the canonical table; it was written against the candidate
+and works unchanged after the swap. It reads BigQuery, GCS, and Firestore only: no
 insert, rename, publish, pause, or Gemini call. It loads every candidate row
 through the strict Delta model, re-verifies comparison IDs, observation
 identity, chronology, raw payload hashes, and canonical metadata, rebuilds the
@@ -499,38 +501,78 @@ Two findings are advisory and never fail the run:
 - =cross_source_mirrored_evidence= — one entity republishes the same evidence
   text across its own source family.
 
-Readback of =tycho.deltas_v2_candidate= on 2026-08-26 (exit code 0):
-- 50 candidate rows, 50 distinct delta IDs/comparison IDs/observation pairs;
+Readback of canonical =tycho.deltas= after the swap on 2026-08-26 (exit code
+=0=; the pre-swap readback of =tycho.deltas_v2_candidate= was identical):
+- 50 rows, 50 distinct delta IDs/comparison IDs/observation pairs;
 - 13 meaningful with 53 changes, 37 noise;
 - 50 revalidated pairs, 61 raw payloads hash-verified, 0 hard failures;
 - 20 normalized-identical noise pairs, 17 genuinely changed noise pairs;
-- 11 active claims, all facts, all resolving to meaningful candidate evidence
+- 11 active claims, all facts, all resolving to meaningful canonical evidence
   with matching entity/source and intact lifecycle links;
 - 13 advisories, all =cross_source_mirrored_evidence= for =claude_code= between
   =github_releases= and =website_changelog=; zero
   =evidence_after_present_in_obs_before=.
 
-* Gemini-only repair gate (2026-08-26)
-The four pre-swap gates are complete, but final table cutover is deliberately
-not complete:
+* Gemini-only repair gate (2026-08-26) — COMPLETE
+All five gates are complete:
 1. Updated semantic acquisition image deployed: job generation =7=,
    image digest =sha256:e993e3df84f047da3fdee4fcbb43d543e97a09d559f0157fac9426b74169cbf3=.
 2. Six report-derived v2 Deltas were force-rerun in =migration= mode: one
    existing claim verified, five clean v2-backed claims created, zero publishes
    and zero alerts.
 3. =tests/test_migration_tools.py= covers resume/idempotency, no-publish,
-   claim-history migration, table rename, and the streaming blocker; =72= tests
-   pass with Ruff and compile checks.
-4. Pub/Sub Monitoring readback showed ten consecutive zero values for
-   =num_undelivered_messages=; endpoint, identity, audience, and ack deadline
-   match the preserved route in =data/semantic_delta_pubsub_readback.json=.
+   claim-history migration, table rename, the streaming blocker, and the
+   cutover Scheduler-safety cases; =95= tests pass with compile checks and Ruff
+   clean over every source package.
+4. Pub/Sub Monitoring readback showed consecutive zero values for
+   =num_undelivered_messages=; endpoint, identity, audience, and the
+   600-second ack deadline match the preserved route in
+   =data/semantic_delta_pubsub_readback.json=.
+5. The strict table swap completed at =2026-08-26T13:11Z= with two same-dataset
+   atomic renames and no copy/delete workaround.
 
-Do not run the final table swap until BigQuery permits the required same-dataset
-rename. The exact blocker is BigQuery's post-streaming rename restriction. Its
-service window can persist for about five hours after the last streaming write
-even when the exposed buffer is empty; retry after approximately
-=2026-08-26T12:28Z=. As of =2026-08-26T08:14:35Z=, canonical =deltas= still had
-96 mixed rows, candidate had 50 strict v2 rows, the audit table was absent, both
-exposed streaming buffers were empty, Scheduler was enabled, generation =7= was
-deployed, Firestore had 27 retired and 11 active claims, and zero active claims
-cited legacy evidence. No copy/delete workaround is allowed.
+** Cutover partial-failure safety fix
+=run_cutover()= used to resume Scheduler unconditionally in =finally=. That was
+unsafe when the archive rename succeeded and the candidate rename then failed:
+resuming would let acquisition run with canonical =deltas= absent. It now reads
+the real physical table names and resumes only after a verified swap, or when
+the archive rename did not commit and the original =deltas= is still
+authoritative. Any other failure leaves Scheduler paused and writes
+=scheduler_left_paused=, an exact =resumable_state= report, and the documented
+=resume_command= to the evidence file (also printed on stderr). Evidence is
+preserved on success and on failure. An ambiguous rename failure fails closed.
+
+** Swap read-backs (2026-08-26T13:11Z)
+- Renames: =deltas= -> =delta_audit_log_20260826= at =13:11:13Z=; then
+  =deltas_v2_candidate= -> =deltas= at =13:11:16Z=. Scheduler paused
+  =13:10:53Z=, resumed =13:11:40Z=.
+- Canonical =tycho.deltas=: exactly =50= rows, all strict =delta@2=; zero
+  violations of schema version, diff kind, generator, prompt version,
+  comparison ID presence, meaningful bounds, meaningful scope, or noise shape;
+  zero duplicate comparison IDs, zero duplicate Delta IDs, zero invalid
+  observation joins against the 92 Observations. 13 meaningful / 37 noise.
+- Audit =tycho.delta_audit_log_20260826=: exactly =96= original rows including
+  all =46= legacy Delta IDs, with the pre-swap =delta_id= inventory hash
+  =e422901acc4fef75c0fa1ca94fbf112ddc008c86ce89c377e0774c55a5c8f4bc= intact.
+- =tycho.deltas_v2_candidate= is absent. All 46 legacy pairs still map to
+  exactly one canonical replacement.
+- =uv run python -m infra.audit_semantic_candidate --table deltas= exits =0=
+  with 0 writes, 0 provider calls, 0 hard failures, 50 revalidated rows, 50
+  hash-verified pairs, and 13 advisory =cross_source_mirrored_evidence= items.
+- All 11 active claims are confirmed facts resolving only to canonical v2
+  evidence with valid lifecycle links; 38 claim documents, none mutated.
+- Scheduler =tycho-nightly= =ENABLED= at =0 2 * * *= UTC; no acquisition
+  execution active; job generation =7=, same image digest, =semantic= mode.
+- Route unchanged: topic =tycho-deltas=, dispatcher endpoint/audience,
+  =tycho-agent-dispatcher= OIDC identity, 600-second ack deadline, zero backlog.
+- The cutover emitted zero Pub/Sub publishes, zero push requests, zero
+  dispatcher requests, zero Runtime invocations, zero analyst actions, zero
+  claim mutations, and zero alerts. Cloud Trace had =0= traces in the window.
+- Bounded log inspection of 175 entries found no prompt, response, quote,
+  source snapshot, evidence text, or claim content; every apparent match was a
+  BigQuery column name in query text or the =tableDataRead= column-access list.
+
+Rollback after the swap renames canonical =deltas= to a timestamped
+=deltas_failed_v2_*= and renames =delta_audit_log_20260826= back to =deltas=;
+that archive holds both the legacy rows and all 50 v2 rows, so v2-backed claims
+still resolve. Rollback never re-enables Python Delta generation.
