@@ -60,12 +60,23 @@ replay for demos.
 | `just strategy-snapshot` | Record the untouched acquisition/Analyst production state |
 | `just strategy-verify` | Re-verify the latest production strategy session |
 | `just strategy-telemetry` | Re-inspect Runtime traces and dispatcher logs for leakage |
+| `just dashboard-install` | Install the pinned frontend dependencies (`npm ci`) |
+| `just dashboard-build` | Type-check and build the dashboard bundle |
+| `just dashboard-test` | Run only the dashboard backend suites |
+| `just dashboard-test-ui` | Run the frontend test suite (Vitest + Testing Library) |
+| `just dashboard-serve` | Serve the dashboard locally against production read-only data |
+| `just dashboard-plan` | Print the dashboard deployment plan; contacts nothing |
+| `just dashboard-readback` | Read every deployed dashboard resource back |
+| `just dashboard-snapshot` | Record the untouched strategy/analyst state and data counts |
+| `just dashboard-verify` | Read-only end-to-end verification of the deployed dashboard |
 | `just cutover-apply` | **Production** table cutover (asks for confirmation) |
 | `just strategy-deploy` | **Production** Strategy Council deployment (asks for confirmation) |
+| `just dashboard-deploy` | **Production** dashboard build and deployment (asks for confirmation) |
+| `just dashboard-grant` | **Production** grant one identity access to the dashboard (asks for confirmation) |
 | `just deploy` | **Production** deployment (asks for confirmation) |
 
 `TYCHO_PROJECT` and `TYCHO_REGION` override the project and region variables.
-The three production recipes require an interactive `yes` and fail closed
+The five production recipes require an interactive `yes` and fail closed
 without a terminal, so they can never run from `check`, `ci`, or the default
 recipe. Everything else in the table reads or runs locally.
 
@@ -157,6 +168,78 @@ out of the store and proves none of it occurs in any exported trace or log.
 
 See `docs/strategic-agent-fleet-evidence.org` for the deployed resource IDs, the
 exact IAM, the first production session, and the telemetry inspection.
+
+## The Intelligence Dashboard
+
+One private Cloud Run service, `tycho-dashboard`, is the fleet's read surface.
+It answers four questions on one page: what changed across competitors, what
+Tycho currently believes, which strategic conclusions survived challenge, and
+exactly which evidence caused each conclusion or belief change.
+
+```bash
+just dashboard-install   # npm ci, pinned frontend dependencies
+just dashboard-build     # tsc --noEmit && vite build
+just dashboard-test      # backend suites
+just dashboard-test-ui   # Vitest + Testing Library
+just dashboard-serve     # local server against production read-only data
+```
+
+The browser holds no Google credential and never talks to Firestore, BigQuery,
+Agent Runtime, or Pub/Sub. The API uses its own Cloud Run service account, which
+is read-only on data: BigQuery data viewer, BigQuery job user, Firestore
+*viewer*, and log writer, plus `roles/run.invoker` on the strategy dispatcher
+service alone. It cannot write a claim or Delta, publish to Pub/Sub, read Cloud
+Storage, or invoke the Analyst Runtime.
+
+Every Delta query names the canonical `tycho.deltas` table and pins
+`schema_version = 'delta@2'`; the archived audit table is unreachable from
+dashboard code. Provenance resolves an exact `(claim_id, version)`: the current
+version returns the live claim, an earlier version is reconstructed from the
+claim's embedded history and labelled as reconstructed, and a version that never
+existed is a 404. The drawer shows the grounded quote already stored in the
+Delta, its observation IDs, and the source URL recorded in `tycho.yaml` — it
+never fetches a raw GCS payload.
+
+`Run Strategy Session` starts only the fixed bounded workflow, by posting
+`{"trigger": "dashboard", "period": "previous_complete_week"}` to the same
+private dispatcher the weekly Scheduler uses. There is no field for a prompt,
+model, scope, or evidence policy. Duplicate protection has two layers: the
+dashboard refuses a second run for the same period while one is in flight, and
+the shared `(period_from, period_to, strategy_version)` lease returns the
+existing session with `skipped: true` and no model call.
+
+Agent activity is reconstructed from the persisted session record — agent, state,
+counts, claim versions — and the page says so. Rejection reasons are reduced to
+deterministic class names before they become events, so Challenger prose never
+reaches the activity timeline. The full reasons are shown where they belong: in
+the collapsed **Rejected by Challenger** section of the brief.
+
+### Deploy and open it
+
+```bash
+just dashboard-plan       # what would be created; contacts nothing
+just dashboard-deploy     # confirmation required; builds, then a resumable deploy
+just dashboard-readback   # read every deployed resource back
+just dashboard-verify     # read-only end-to-end verification of the deployed service
+just dashboard-grant member=user:someone@example.com   # confirmation required
+```
+
+The service is private. An unauthenticated browser request returns `403`, which
+is the expected result. Open it with your own identity:
+
+```bash
+gcloud run services proxy tycho-dashboard --region us-central1 \
+  --project gen-lang-client-0110801105
+# then open http://127.0.0.1:8080
+```
+
+The deployment tool reuses the analyst-path guard and adds the strategy
+resources to it. Its one permitted write against a protected resource is exactly
+`roles/run.invoker` on `tycho-strategy-dispatcher` for the dashboard service
+account; a wider role, a different member, or a different verb is refused.
+
+See `docs/intelligence-dashboard-evidence.org` for the deployed resource IDs,
+the exact IAM, the demo sequence, and the production verification.
 
 ## Calibrate the Gemini analyst
 
@@ -275,4 +358,6 @@ bq query --use_legacy_sql=false \
 - [`handoff.org`](handoff.org) — current implementation and operational state
 - [`docs/strategic-agent-fleet-handoff.org`](docs/strategic-agent-fleet-handoff.org) — the strategy council brief and its split start gate
 - [`docs/strategic-agent-fleet-evidence.org`](docs/strategic-agent-fleet-evidence.org) — what the local strategy implementation actually did
+- [`docs/intelligence-dashboard-handoff.org`](docs/intelligence-dashboard-handoff.org) — the dashboard brief
+- [`docs/intelligence-dashboard-evidence.org`](docs/intelligence-dashboard-evidence.org) — the deployed dashboard, its IAM, and its production verification
 - [`docs/semantic-delta-deployment-evidence.org`](docs/semantic-delta-deployment-evidence.org)

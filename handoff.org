@@ -18,7 +18,9 @@ lint, compile, pytest) with no GCP access and no repository secrets.
 
 A second worktree for the strategy work lives at
 =/home/nihar/Work/ATA-Hackathon/tycho-strategy= on branch
-=feat/strategy-council=.
+=feat/strategy-council=. A third, for the dashboard, lives at
+=/home/nihar/Work/ATA-Hackathon/tycho-dashboard= on branch
+=feat/intelligence-dashboard=.
 
 * Current headline
 Tycho runs locally and in GCP for four coding-agent entities. Acquisition and
@@ -34,7 +36,11 @@ preserved immutably in =tycho.delta_audit_log_20260826=. The Strategy Council
 now runs in production on its own Agent Runtime, dispatcher, and weekly
 Scheduler job.
 
-Both gates are closed. The next task is the dashboard.
+The Intelligence Dashboard is deployed as its own private Cloud Run service,
+=tycho-dashboard=, reading governed memory only and reusing the existing private
+Strategy dispatcher for its one action.
+
+Every gate is closed.
 
 Current local persistent store (2026-08-25):
 - observations: 52
@@ -425,11 +431,68 @@ processor; direct trace inspection found no unsafe fields.
    search adapters are not implemented.
 5. GitHub raw responses include volatile metadata, so hashes may create changed
    pairs even though semantic generation correctly classifies them as noise.
-6. No UI, brief writer, Q&A agent, Slack delivery, or receipt-producing consumer
-   is implemented yet.
+6. The Intelligence Dashboard is the only UI. No Q&A agent, Slack delivery, or
+   receipt-producing consumer is implemented. The dashboard reconstructs agent
+   activity from the persisted session record because the council's in-flight
+   events are not persisted; it labels that timeline as derived rather than
+   pretending to replay a live agent feed.
 7. The repository is private (=nihsett/tycho=). =.env=, =data/=, caches, and
    the virtualenv are gitignored and were never staged. The exposed
    =GOOGLE_API_KEY= still needs rotation before sharing.
+
+* Intelligence dashboard — production (2026-08-27)
+The dashboard is deployed, private, and validated against production. Full
+evidence: =docs/intelligence-dashboard-evidence.org=. Machine state:
+=data/dashboard_production.json= and
+=data/dashboard_production_verification.json= (both gitignored).
+
+** Resources
+- Cloud Run service =tycho-dashboard= at
+  =https://tycho-dashboard-u2s544lf5a-uc.a.run.app=, private
+  (=--no-allow-unauthenticated=), min =0= / max =1=, request timeout =900s=.
+- Service account =tycho-dashboard@gen-lang-client-0110801105.iam.gserviceaccount.com=,
+  holding exactly =roles/bigquery.dataViewer=, =roles/bigquery.jobUser=,
+  =roles/datastore.viewer=, and =roles/logging.logWriter=. Read-only on data: it
+  cannot write a claim or Delta, publish to Pub/Sub, read GCS, or invoke the
+  Analyst Runtime.
+- One binding on the existing strategy path:
+  =roles/run.invoker= on =tycho-strategy-dispatcher= for that service account.
+  That is the *only* production resource this deployment changed.
+- Access is explicit and per identity; there is no =allUsers= binding. An
+  unauthenticated browser request returns =403=, which is the expected result.
+
+** What it serves
+One page: fleet health, four competitor cards, a pinned belief timeline
+(created / verified / disputed / superseded / retired), the latest strategy
+brief with passed *and* rejected cards, a derived agent-activity timeline, a
+provenance drawer (claim → exact version → canonical Delta → grounded quote →
+observation IDs → configured source URL), and one =Run Strategy Session=
+button.
+
+** Commands
+#+begin_src bash
+just dashboard-install    # npm ci, pinned frontend dependencies
+just dashboard-build      # tsc --noEmit && vite build into dashboard/frontend/dist
+just dashboard-test       # the dashboard backend suites
+just dashboard-test-ui    # Vitest + Testing Library
+just dashboard-plan       # what would be created; contacts nothing
+just dashboard-deploy     # PRODUCTION: builds, then a resumable deploy (confirmation)
+just dashboard-readback   # read every deployed resource back
+just dashboard-snapshot   # untouched strategy/analyst state plus data counts
+just dashboard-verify     # read-only end-to-end verification of the deployed service
+just dashboard-grant member=user:someone@example.com   # PRODUCTION: grant access
+just dashboard-serve      # local server against production read-only data
+#+end_src
+
+Only =dashboard-deploy= and =dashboard-grant= write, and both require an
+interactive =yes=.
+
+** Access for a demo
+#+begin_src bash
+gcloud run services proxy tycho-dashboard --region us-central1 \
+  --project gen-lang-client-0110801105
+# then open http://127.0.0.1:8080
+#+end_src
 
 * Recommended next session
 Both gates are closed out. The strict BigQuery table swap completed on
@@ -452,7 +515,9 @@ uv run python -m infra.audit_semantic_candidate \
 #+end_src
 It exits nonzero on any hard failure.
 
-The next task is the dashboard, in its own document. Before starting it:
+The dashboard is built and deployed; see =Intelligence dashboard — production
+(2026-08-27)= above. The read-only gates remain useful before any further
+change:
 1. Re-run the read-only gates and confirm nothing drifted:
    #+begin_src bash
    just audit deltas          # strict Delta@2 audit of the canonical table
@@ -461,7 +526,10 @@ The next task is the dashboard, in its own document. Before starting it:
    #+end_src
 2. Leave the weekly session alone. =tycho-strategy-weekly= fires Monday
    =2026-08-31T06:00:00Z= on its own; do not trigger extra production sessions
-   to manufacture a passing card.
+   to manufacture a passing card. The dashboard's =Run Strategy Session= button
+   is safe to demo: inside the current week it normalizes to the same lease
+   identity as the completed 2026-W34 session, so it returns that session with
+   =skipped=true= and makes no model call.
 
 The first natural meaningful =delta@2= Analyst end-to-end validation remains a
 separate pending gate; never manufacture production evidence. Rotate

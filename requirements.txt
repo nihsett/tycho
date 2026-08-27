@@ -56,7 +56,9 @@ distro==1.9.0
 docstring-parser==0.18.0
     # via google-cloud-aiplatform
 fastapi==0.141.1
-    # via google-adk
+    # via
+    #   google-adk
+    #   tycho-intel
 frozenlist==1.8.0
     # via
     #   aiohttp
@@ -374,7 +376,9 @@ tzlocal==5.4.4
 urllib3==2.7.0
     # via requests
 uvicorn==0.52.4
-    # via google-adk
+    # via
+    #   google-adk
+    #   tycho-intel
 watchdog==6.0.0
     # via google-adk
 websockets==15.0.1

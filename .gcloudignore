@@ -9,3 +9,13 @@ data/
 tests/
 docs/
 schemas/fixtures/
+# Only the built dashboard bundle ships. Sources, dev dependencies, and the
+# frontend toolchain stay out of the image.
+dashboard/frontend/node_modules/
+dashboard/frontend/src/
+dashboard/frontend/index.html
+dashboard/frontend/package.json
+dashboard/frontend/package-lock.json
+dashboard/frontend/tsconfig.json
+dashboard/frontend/vite.config.ts
+dashboard/frontend/vitest.config.ts

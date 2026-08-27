@@ -77,6 +77,27 @@ that are injected before each fetch.
                                 voices staleness
 ```
 
+The Intelligence Dashboard is the fleet's read surface. It reads the same claim
+store and canonical Delta table, adds nothing to them, and reaches the Strategy
+Council only through the existing private dispatcher:
+
+```
+ browser (no Google credential, no database access)
+        │  same-origin HTTPS, private Cloud Run, IAM-authenticated
+        ▼
+ Cloud Run tycho-dashboard  (min 0 / max 1, own service account)
+   ├── static bundle (React/TypeScript/Vite, built ahead of deploy)
+   └── FastAPI read model
+         ├── Firestore  claims, strategy sessions, briefs   (datastore.viewer)
+         ├── BigQuery   canonical delta@2 + observations    (dataViewer/jobUser)
+         └── POST {"trigger":"dashboard","period":"previous_complete_week"}
+               ──► tycho-strategy-dispatcher (run.invoker on that service only)
+                     ──► the same governed workflow the weekly Scheduler runs
+```
+
+No GCS, no Pub/Sub, no Analyst Runtime, no claim or Delta write, and no access
+to the archived `delta_audit_log_*` table.
+
 The strategy council reads the same claim store and canonical Delta table. It
 writes nothing back into them:
 
@@ -142,6 +163,11 @@ writes nothing back into them:
 | Strategy leases | data | Firestore / SQLite | transactional `(period_from, period_to, strategy_version)` identity; the lease and the running session are created together, and the final commit requires the session to still own an active lease |
 | Strategy dispatcher | deterministic service | private Cloud Run (`tycho-strategy-dispatcher`), own service account | authenticated; accepts a trigger naming a period, never a date range or prompt; derives the previous complete week itself and normalizes it into the bounded `StrategyRequest`; returns and logs only IDs, state, counts, and `skipped` |
 | Strategy schedule | Cloud Scheduler (`tycho-strategy-weekly`) | — | Monday 06:00 UTC (`0 6 * * 1`); OIDC to the strategy dispatcher only; its body is a static period *name*, so it cannot widen the window |
+| Dashboard read model | Python | `dashboard/api/readmodel.py` | named query methods; canonical `delta@2` only, exact claim versions, deterministic active/stale/disputed counts, bounded pagination |
+| Dashboard read source | Python | `dashboard/api/source.py` | the complete store surface a dashboard read may touch: nine read methods, no write, no GCS, no archive table |
+| Dashboard API | FastAPI | private Cloud Run (`tycho-dashboard`), own service account, min 0 / max 1 | strict bounded response models; CSP and secure headers; same-origin only; structural logs |
+| Dashboard frontend | React / TypeScript / Vite | served by the same Cloud Run service | one typed API client, closed SSE enum, no `dangerouslySetInnerHTML` |
+| Dashboard strategy trigger | Python | `dashboard/api/runs.py` | posts the fixed trigger to the existing private dispatcher; duplicate-safe in-process and through the shared lease |
 | Q&A agent | ADK agent | Cloud Run | claims-only answers with evidence citations; refuses when no claim covers the question |
 | Delivery receipts | data | Firestore | (claim_id, version) delivered once per context; new version re-delivers |
 | Config | YAML in repo | — | canonical entity keys, sources, ontology, staleness clocks, schedules |
@@ -217,6 +243,28 @@ Accumulate facts; revise beliefs. Never the other way around.
   from persisted runtime spans; safe IDs, action names, and structural spans remain.
   Strategy events are built from an allowlist of structural fields, so a
   content-bearing field cannot leak by being added upstream.
+- The dashboard is private Cloud Run with no `allUsers` binding, and the browser
+  never receives a Google credential: the API authenticates with its own Cloud
+  Run service account. That identity is read-only on data
+  (`roles/bigquery.dataViewer`, `roles/bigquery.jobUser`,
+  `roles/datastore.viewer`, `roles/logging.logWriter`) plus `roles/run.invoker`
+  on the strategy dispatcher service alone. It cannot write a claim or Delta,
+  publish to Pub/Sub, read Cloud Storage, or invoke the Analyst Runtime.
+- The dashboard's own deployment tool reuses the analyst-path guard and adds the
+  strategy resources to it. Its one permitted write against a protected resource
+  is exactly `roles/run.invoker` on `tycho-strategy-dispatcher` for the dashboard
+  service account; a wider role, a different member, or a different verb is
+  refused.
+- Dashboard responses are strict bounded Pydantic models, and a rejected request
+  is answered with a generic error rather than FastAPI's default body, which
+  would echo the caller's own input. Log lines carry route template, method,
+  status, latency, and validated IDs; a path parameter that failed validation is
+  recorded as the literal `invalid`.
+- Grounded quotes and brief prose are untrusted text in the browser too. The
+  frontend renders a bounded Markdown subset into React elements, strips `<` and
+  `>`, keeps only internal claim-provenance links, and contains no
+  `dangerouslySetInnerHTML`. A strict CSP (`default-src 'none'`, `connect-src
+  'self'`, no inline script or style) is served on every response.
 
 ## Observability
 
@@ -278,6 +326,27 @@ No auto-generated scrapers; no dynamic ontology growth; no strategy
 *recommendations* — the council concludes what is presently true and what would
 falsify it, and never proposes an action; no multi-tenancy/auth; ≤4 entities,
 ≤4 source types.
+
+## The dashboard read model (deliberate constraints)
+
+- **Canonical only.** Every Delta query names `tycho.deltas` and pins
+  `schema_version = 'delta@2'`. The archived `delta_audit_log_20260826` table is
+  not reachable from any dashboard code path.
+- **Exact versions.** A provenance request resolves `(claim_id, version)`. The
+  current version returns the live claim; an earlier version is reconstructed
+  from the claim's embedded history and labelled as reconstructed; a version
+  that never existed is a 404.
+- **Derived badges.** `stale` comes from the `tycho.yaml` threshold for the
+  claim's scope; `disputed` is derived from active inbound `disputes` links, not
+  stored on the target.
+- **Derived agent activity.** The council's in-flight events are not persisted,
+  so the dashboard does not replay them. It reconstructs a structural timeline
+  from the session record — agent, state, counts, IDs — and says so in the UI. A
+  rejection reason is reduced to a deterministic class before it becomes an
+  event, so Challenger prose never reaches the activity timeline.
+- **Bounded cache.** Overview and health share one 60-second snapshot so the two
+  panels never disagree. Timelines, provenance, sessions, and event streams are
+  never cached: an in-progress run can never be served as completed.
 
 ## Diagram TODO for submission
 

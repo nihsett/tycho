@@ -1,0 +1,570 @@
+#+TITLE: Tycho Intelligence Dashboard — Implementation and Production Evidence
+#+DATE: 2026-08-27
+#+STARTUP: overview
+
+* How to read this document
+Three records, in the order they happened:
+1. *What was built* — the read model, the API, the frontend, and their tests.
+2. *Deployment* — the private Cloud Run service, its identity, its exact IAM,
+   and the one binding it added to the existing strategy path.
+3. *Production verification* — the deployed service exercised end to end against
+   real production data, read-only, with before/after proof that nothing moved.
+
+No credential, model output, prompt, claim statement, grounded quote, or brief
+prose appears in this document. Everything below is a resource ID, an identity,
+a role, a digest, a count, or a status code.
+
+* Start gate
+Every precondition in =docs/intelligence-dashboard-handoff.org= was re-verified
+read-only immediately before starting, against
+=gen-lang-client-0110801105= / =us-central1=:
+
+| Gate | Observed 2026-08-27 |
+|------+---------------------|
+| =docs/gemini-delta-backlog-repair-handoff.org= complete | yes; the strict table swap landed 2026-08-26T13:11Z |
+| =docs/strategic-agent-fleet-handoff.org= complete | yes; Runtime, dispatcher, and weekly Scheduler deployed and validated |
+| canonical Deltas are v2-only | =tycho.deltas= 56 rows, 56 =delta@2=, 0 legacy |
+| no active claim cites legacy evidence | 11 active claims, 0 evidence defects under =evidence_defect()= |
+| at least one persisted strategy session/brief | 3 sessions (1 completed, 2 failed), 1 brief =brf_2026w35-pap3dh2d= |
+
+The canonical table had grown from the 50 rows recorded on 2026-08-26 to 56: the
+nightly acquisition at =02:02–02:03Z= on 2026-08-27 added six rows, three of them
+meaningful. Nothing in this task caused that; it is the fleet running.
+
+* What was built
+** Backend
+| Module | Role |
+|--------+------|
+| =dashboard/api/source.py= | the complete store surface a dashboard read may touch: nine read methods and nothing else |
+| =dashboard/api/readmodel.py= | every named query: health, overview, belief timeline, provenance, latest session, derived activity |
+| =dashboard/api/activity.py= | safe agent-activity events derived from a persisted session |
+| =dashboard/api/runs.py= | the duplicate-safe Run Strategy Session action, the dispatcher client, and the SSE broker |
+| =dashboard/api/models.py= | strict bounded response schemas; every enum closed, every prose field length-capped |
+| =dashboard/api/app.py= | routes, security headers, bounded bodies, same-origin policy, structural logging, static serving |
+| =dashboard/api/serve.py= | the container entrypoint; uvicorn's access log is deliberately off |
+| =infra/deploy_dashboard.py= | resumable, idempotent deployment that cannot modify the analyst or strategy path |
+| =dashboard/e2e/verify_dashboard.py= | read-only end-to-end verification of the deployed service |
+
+*** The read-only boundary is structural, not a convention
+=CloudReadSource= constructs its own BigQuery and Firestore clients rather than
+borrowing =pipeline.cloud.CloudBackend=, so the object never holds a Cloud
+Storage or Pub/Sub client at all. Its public surface is exactly nine methods:
+=list_claims=, =get_claim=, =get_delta=, =list_canonical_deltas=,
+=get_observation=, =watcher_activity=, =strategy_sessions=,
+=get_strategy_session=, =get_brief=.
+
+A test asserts that set exactly, so adding a write method to the source is a
+test failure rather than a silent capability grant. A second test drives a full
+read pass — health, overview, timeline, provenance, latest session, activity —
+through a recording fake and asserts that no forbidden method name
+(=create_claim=, =insert_delta=, =publish_delta=, =get_raw=, =get_audit_delta=,
+=commit_strategy_session=, …) is ever reached.
+
+Every Delta query names =tycho.deltas= and pins
+=schema_version = 'delta@2'=; a test counts the Delta queries in the module and
+asserts each one carries that constraint, and another asserts no query line
+mentions the archive.
+
+*** Exact claim versions
+=GET /api/claims/{claim_id}/versions/{version}/provenance= resolves the exact
+version. The current version returns the live claim; an earlier version is
+reconstructed from the claim's embedded history and reported with
+=exact_version: false= plus a reconstruction note; a version that never existed
+is a =404=. The response never contains =gs://=, =content_ref=, or
+=content_hash= — a test asserts that on the serialized payload.
+
+*** Derived agent activity
+The council's in-flight events are not persisted, so the dashboard does not
+pretend to replay them. It reconstructs the fixed workflow's structural timeline
+from the session record and marks every event =derived: true=; the UI says so in
+plain language.
+
+A rejection reason is reduced to a deterministic *class* before it becomes an
+event — =entity_diversity=, =source_diversity=, =conclusion_language=,
+=stale_premise=, =premise_version=, =challenger=, and so on. A test takes every
+piece of governed prose the fixture session holds (card statements, rationales,
+competing explanations, falsifiers, rejection reasons, claim statements and
+rationales, Delta summaries, grounded quotes, and the brief markdown) and proves
+none of it occurs anywhere in any derived event. The full reasons are shown
+where they belong: in the brief's collapsed =Rejected by Challenger= section.
+
+** Frontend
+=dashboard/frontend/=, React 19.2.8 + TypeScript 5.9.3 + Vite 8.2.2, tested with
+Vitest 4.1.11 and Testing Library 16.3.2 under jsdom 30.0.1. Every dependency is
+pinned to an exact version in =package.json= with a committed
+=package-lock.json=; =npm audit= reports 0 vulnerabilities. No UI framework: about 400 lines of hand-written CSS with
+one custom property per lifecycle state.
+
+Components are named after product concepts, as the handoff asks:
+=FleetHealthBar=, =CompetitorGrid=, =CompetitorCard=, =BeliefTimeline=,
+=StrategyBrief=, =StrategyCard=, =AgentActivityTimeline=, =ProvenanceDrawer=,
+=RunStrategyButton=. There is one typed API client (=lib/api.ts=), and no =any=
+in the event or provenance types (=lib/types.ts=).
+
+The SSE enum is closed:
+=run_started|agent_started|agent_completed|card_rejected|brief_completed|run_failed|heartbeat=.
+=parseEvent= refuses anything outside it.
+
+*** Untrusted text stays text
+There is no =dangerouslySetInnerHTML= anywhere in the app. =lib/markdown.ts=
+parses a bounded subset — headings, paragraphs, bullets, bold, code — strips
+=<= and =>=, flattens any external Markdown link to its label, and keeps only
+internal claim-provenance links of the exact shape the citation callback
+produces. Grounded quotes render as text nodes inside a =blockquote=.
+
+Borrowed from the ADK Deep Search sample: session-aware SSE consumption, a
+progressive activity timeline, and clear loading/empty/error states. Not
+borrowed: console logging of complete SSE events, rendering function arguments
+or responses, a chat transcript, website-count gimmicks, or its styling.
+
+* Tests
+** Backend — 115 dashboard tests inside a 488-test suite
+| Suite | Tests | Covers |
+|-------+-------+--------|
+| =tests/test_dashboard_readmodel.py= | 35 | the exact read surface, no write/GCS/archive method, canonical-v2-only queries, deterministic counts, empty entity states, the derived disputed badge, staleness thresholds, supersession pairs, scope filtering, bounded pagination, exact and reconstructed claim versions, grounded quotes and observation metadata, no raw payload pointer, passed/rejected cards, empty briefs |
+| =tests/test_dashboard_api.py= | 18 | entity/scope/ID enum validation, server-side limit caps, generic bounded errors, a rejected request never echoed back, security headers, no CORS middleware, cross-origin writes refused, oversized bodies refused, no OpenAPI or docs route, structural logs with validated IDs only, and the cache covering overview/health only |
+| =tests/test_dashboard_activity.py= | 10 | the workflow agents in order, recomputed counts, rejection classes instead of reasons, no governed prose in any event, failed and running sessions, the derived label |
+| =tests/test_dashboard_runs.py= | 22 | duplicate clicks and concurrent clicks starting exactly one run, a skipped dispatch reported as a lease hit, addressing a run by run ID or session ID, ordered streams without duplicates, resume after a sequence number, live delivery, heartbeats never advancing the resume point, no repeated run_started, dispatcher failure reported as a class name only, a failed session leaving the period retryable, no governed prose in any stream event, the dispatcher result contract refusing an unexpected field, and the SSE endpoint's headers, event names, and id lines |
+| =tests/test_dashboard_deploy.py= | 30 | the analyst- and strategy-path guard, the single narrow dispatcher-invoker exemption, wider roles and other members refused, reads still permitted for evidence, the read-only role set, forbidden role prefixes, IAM readback failing closed both ways, a public service as a hard failure, scale-to-zero, and =grant-viewer= refusing a public member |
+
+=just check= (lock check, Ruff, compileall, pytest): *488 passed*, up from the
+373-test baseline.
+
+** Frontend — 66 tests
+| Suite | Tests | Covers |
+|-------+-------+--------|
+| =src/components/components.test.tsx= | 24 | entity cards and their counts, the selected card, the quiet-entity empty state, bounded error states, opening the drawer from a notable claim; the supersession pair rendered together, pinned claim IDs and versions, one colour per lifecycle state, the empty timeline explanation, entity/scope filters only, evidence chips; passed cards with word confidence and no fake percentages, rejected cards behind a collapsed section with their reasons, the honest empty brief, premise chips; named agents with recomputed counts, no prompt/response/quote text, the pre-run empty state, collapsed heartbeats; and Markdown sanitisation |
+| =src/components/ProvenanceDrawer.test.tsx= | 13 | modal dialog semantics and accessible name, focus moving to Close on open, Escape and backdrop close, Tab and Shift+Tab trapped inside, the exact version, the canonical Delta, grounded quotes as text with no markup, observation metadata and the configured source with no =gs://=, plain language when there are no lifecycle links, following a supersession link, an honestly reported reconstruction, and bounded errors |
+| =src/lib/useStrategyRun.test.tsx= | 12 | ordering by sequence number, duplicate suppression, heartbeat collapsing, refusing an event outside the closed enum, a live run streaming to completion, a replayed reconnect adding nothing, a failed run reporting its failure class and staying retryable, a duplicate trigger reported as a lease hit with no model call, silence while the browser reconnects versus a hard failure, and a refused trigger never opening a stream |
+| =src/lib/source-safety.test.ts= | 9 | no =dangerouslySetInnerHTML=, =.innerHTML=, =outerHTML=, =document.write=, =eval(=, or =new Function(= in the application source; no credential, project ID, or Google API endpoint embedded; a same-origin API client with no absolute URL |
+| =src/App.test.tsx= | 8 | the name, promise, fleet health and one primary action; all four competitor cards including the quiet one; timeline, brief and activity together; opening and Escape-closing the drawer from a claim and from a brief citation; landmarks and a skip link; no free-form text input anywhere on the page; a responsive grid; and each failing panel isolated and explained |
+
+** End to end
+=dashboard/e2e/verify_dashboard.py= exercises the *deployed* service against
+*real production data*. See =Production verification= below.
+
+* Deployment (2026-08-27)
+Everything below was read back from the live API, not inferred.
+
+** Resources created
+| Resource | Identity |
+|----------+----------|
+| Cloud Run service | =tycho-dashboard= at =https://tycho-dashboard-u2s544lf5a-uc.a.run.app= |
+| Service account | =tycho-dashboard@gen-lang-client-0110801105.iam.gserviceaccount.com= |
+| Image | =us-central1-docker.pkg.dev/gen-lang-client-0110801105/cloud-run-source-deploy/tycho-dashboard= |
+| Revision | =tycho-dashboard-00006-5bt=, =Ready=True= |
+| Image digest | =sha256:4e0eb5a57092217603f04a0013a9972b9314c69ca7963ee8cf3eb1a1036a8de2= |
+| Earlier revisions | =…-00001-b4b=, =…-00002-jhq=, =…-00003-pkn=; each redeploy read every resource back, and none changed the identity, the roles, the access policy, or any other production resource |
+| Region / project | =us-central1= / =gen-lang-client-0110801105= |
+
+Service configuration, read back: =--no-allow-unauthenticated=, ingress =all=,
+min =0= / max =1=, request timeout =900s=, 1 vCPU / 1 GiB, entrypoint
+=python -m dashboard.api.serve=. Cloud Run omits the =minScale= annotation when
+it is the default zero, so the readback normalizes an absent annotation to =0=
+and fails closed on any other scaling.
+
+** Exact IAM
+The dashboard service account holds *exactly* four project roles, read back from
+the live policy and compared as a set:
+- =roles/bigquery.dataViewer=
+- =roles/bigquery.jobUser=
+- =roles/datastore.viewer=
+- =roles/logging.logWriter=
+
+=roles/datastore.viewer=, not =roles/datastore.user=: the dashboard reads
+Firestore and cannot write it. Zero roles matching the forbidden prefixes
+=roles/storage=, =roles/pubsub=, =roles/aiplatform.memoryBank=,
+=roles/cloudtrace=, =roles/datastore.user=, =roles/datastore.owner=,
+=roles/bigquery.dataEditor=, =roles/bigquery.dataOwner=, =roles/bigquery.admin=,
+=roles/editor=, or =roles/owner=. The readback fails closed on any wider *or*
+narrower set.
+
+It therefore cannot write a claim or a Delta, publish to Pub/Sub, read Cloud
+Storage, or invoke the Analyst Runtime.
+
+** Strategy dispatcher invocation
+One binding, on the service and not the project:
+=roles/run.invoker= on =tycho-strategy-dispatcher= for
+=serviceAccount:tycho-dashboard@…=.
+
+Invoker members on the strategy dispatcher after the change:
+- =serviceAccount:tycho-dashboard@gen-lang-client-0110801105.iam.gserviceaccount.com=
+- =serviceAccount:tycho-strategy-dispatcher@gen-lang-client-0110801105.iam.gserviceaccount.com=
+
+No =allUsers= and no =allAuthenticatedUsers=; the readback treats a public
+binding as a hard failure. *This binding is the only production resource this
+deployment changed.*
+
+** Access policy
+The dashboard is private. There is no =allUsers= binding and none can be added
+through this tooling: =grant-viewer= refuses =allUsers= and
+=allAuthenticatedUsers= outright, and both the deploy readback and the grant
+path re-read the policy and fail closed on a public member.
+
+Access is explicit and per identity. Currently exactly one invoker:
+=user:nihsett@gmail.com=.
+
+IAP was not used: it requires an external HTTPS load balancer, which the handoff
+allows skipping in favour of "explicit demo-user access". The documented access
+method is the operator's own identity through an authenticated proxy:
+
+#+begin_src bash
+gcloud run services proxy tycho-dashboard --region us-central1 \
+  --project gen-lang-client-0110801105
+# then open http://127.0.0.1:8080
+#+end_src
+
+An unauthenticated browser request returns =403=. That is the expected result,
+and it is asserted by the verification below.
+
+** The deployment tool cannot touch the analyst or strategy path
+Every shell-out goes through one =run()= wrapper that calls =guard_command()=
+first. It reuses =PROTECTED_RESOURCES= from =infra/deploy_strategy_council.py=
+and adds =tycho-strategy-dispatcher=, =tycho-strategy-weekly=, the Strategy
+Council Runtime display name, and =reasoningEngines=.
+
+A gcloud *target* is a positional argument, so the guard inspects positionals
+and any flag whose value is exactly a protected name. That distinction matters:
+the dashboard legitimately passes the strategy dispatcher's URL as an
+environment variable, and that must not read as an attempt to modify it, while
+=--service=tycho-nightly= still must.
+
+Exactly one write against a protected resource is permitted, and it is matched
+structurally rather than by intent: =gcloud run services add-iam-policy-binding
+tycho-strategy-dispatcher= with =--role=roles/run.invoker= and a single
+=--member= that is the dashboard's own service account. A wider role, a
+different member, a removal, or a different verb is refused. Thirty tests assert
+the refusals, the permitted reads, and this one exemption.
+
+** Secrets
+No secret is deployed and none is in the bundle. The service reads
+=TYCHO_PROJECT=, =TYCHO_DATASET=, =TYCHO_DASHBOARD_STATIC=,
+=TYCHO_STRATEGY_DISPATCHER_URL=, =TYCHO_DASHBOARD_CACHE_SECONDS=, and
+=TYCHO_DASHBOARD_DISPATCH_TIMEOUT= — all non-secret configuration. The OIDC
+token used to call the dispatcher is minted per request from the Cloud Run
+metadata server and never stored. =.env= was not read and is excluded by
+=.gcloudignore=.
+
+* Production verification (2026-08-27)
+=just dashboard-verify= against the deployed service, through
+=gcloud run services proxy= — the same access path a demo uses. Read-only.
+Machine report: =data/dashboard_production_verification.json= (gitignored).
+
+** Verdict
+All 14 checks passed against revision =tycho-dashboard-00006-5bt=.
+Window =2026-08-27T07:13:27.477008+00:00= to =2026-08-27T07:14:32.666300+00:00=.
+
+| Check | Result |
+|-------+--------|
+| =an_inflight_duplicate_click_reuses_the_same_run= | *pass* |
+| =bounded_errors= | *pass* |
+| =every_read_succeeded= | *pass* |
+| =no_cors_header= | *pass* |
+| =no_forbidden_markers= | *pass* |
+| =no_production_mutation= | *pass* |
+| =no_secret_or_database_endpoint_in_the_bundle= | *pass* |
+| =provenance_chain_resolves= | *pass* |
+| =security_headers_present= | *pass* |
+| =service_is_private= | *pass* |
+| =stream_events_are_structural= | *pass* |
+| =the_lease_returns_the_existing_session_without_a_model_call= | *pass* |
+| =the_page_and_its_bundle_are_served= | *pass* |
+| =trigger_accepted= | *pass* |
+
+** What was exercised
+*** Reads, all through the authenticated proxy
+| Endpoint | Status | Bytes |
+|----------+--------+-------|
+| =health= | 200 | 753 |
+| =meta= | 200 | 228 |
+| =overview= | 200 | 5,212 |
+| =provenance= | 200 | 5,436 |
+| =strategy_events= | 200 | 2,779 |
+| =strategy_latest= | 200 | 6,672 |
+| =timeline:claude_code= | 200 | 17,084 |
+| =timeline:codex= | 200 | 23,139 |
+| =timeline:gemini_cli= | 200 | 7,272 |
+| =timeline:pi= | 200 | 3,042 |
+
+Every response carried =Content-Security-Policy=, =X-Content-Type-Options=,
+=X-Frame-Options=, and =Referrer-Policy=, and *none* carried an
+=Access-Control-Allow-Origin= header — there is no CORS middleware on the app.
+
+The served CSP: =default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'=
+
+*** The page and its bundle
+| Check | Result |
+|-------+--------|
+| =GET /= | 200, =text/html; charset=utf-8= |
+| bundle | =/assets/index-ChRRzhUb.js=, 200, 221,359 bytes |
+| credential / project / Google endpoint markers in the bundle | 0 hits |
+
+Markers searched in the served JavaScript: =BEGIN PRIVATE KEY=,
+=service_account=, =GOOGLE_API_KEY=, =AIza=, =client_secret=, =Bearer =,
+=firestore.googleapis.com=, =bigquery.googleapis.com=, =gen-lang-client-=.
+
+Whether the *application* injects HTML is a source-level question, not a bundle
+one: React's own runtime names =dangerouslySetInnerHTML= internally, so the
+string is present in any bundle containing React. =src/lib/source-safety.test.ts=
+asserts over the application's own =.ts=/=.tsx= files, with comments stripped,
+that it never uses =dangerouslySetInnerHTML=, =.innerHTML=, =outerHTML=,
+=document.write=, =eval(=, or =new Function(=; that no credential, project ID,
+or =googleapis.com= endpoint appears in the source; and that the API client is
+same-origin with no absolute URL.
+
+*** Overview totals, computed from production
+| Metric | Value |
+|--------+-------|
+| active claims | 11 |
+| retired claims | 27 |
+| superseded claims | 0 |
+| canonical Deltas | 56 |
+| meaningful / noise | 16 / 40 |
+| observations | 100 |
+
+*** Belief timelines
+| Entity | Events | Lifecycle kinds present |
+|--------+--------+-------------------------|
+| =claude_code= | 22 | created, retired |
+| =codex= | 30 | created, retired |
+| =gemini_cli= | 10 | created, retired |
+| =pi= | 4 | created, retired, verified |
+
+No supersession chain exists in production yet, so =superseded= does not appear;
+=verified= appears for =pi=, whose claim was re-observed unchanged and had its
+verification clock bumped. The dashboard reports what is there.
+
+*** Bounded errors
+| Request | Status |
+|---------+--------|
+| =limit_over_cap= | 400 |
+| =malformed_claim_id= | 400 |
+| =unknown_entity= | 404 |
+| =unknown_scope= | 400 |
+| =unknown_session= | 400 |
+
+Each returned the generic body — the caller's own input is never reflected.
+
+*** One provenance chain, resolved end to end
+| Step | Value |
+|------+-------|
+| claim | =clm_01M0YHK2833028S5N36DJYMA85= at version 1 |
+| exact version | true |
+| canonical Delta | =dlt_01M0YF3YH7C5N98DXNCPVYM7FE= |
+| admissible under =evidence_defect()= | true |
+| grounded quotes carried | 6 |
+| observations | =obs_01M0VAGK3WWKGV22TZH7M8CQA8= (before), =obs_01M0XWXN58ZPCX07P6H8NDQZTE= (after), both resolved |
+| configured source | =https://code.claude.com/docs/en/changelog.md= |
+
+No raw GCS payload was fetched, and no =gs://= reference appears in the response.
+
+*** The stored strategy session and brief
+| Field | Value |
+|-------+-------|
+| session | =sts_01M0ZGG793KQK3BTCVPAP3DH2D=, state =completed= |
+| manifest hash | =eaff310db5b2964af12c2251cbbc0cbb9654bcdeec447ab8bb5b7b629ad76589= |
+| pinned claim versions | 11 |
+| cards | 2 proposed, 0 passed, 2 rejected |
+| challenges | 0 — both cards failed deterministic validation before the Challenger was consulted |
+| brief | =brf_2026w35-pap3dh2d=, 480 bytes, =empty=true= |
+| context | 22,866 bytes / ~5,717 estimated tokens |
+| model usage | 8,047 in / 485 out, 3,137 ms |
+
+The dashboard renders this honestly: an empty brief, zero passed conclusions, and
+both rejected cards with the reasons Python generated.
+
+*** Rejected cards, as displayed
+| Card | Entities | Source families | Deterministic reasons |
+|------+----------+-----------------+-----------------------|
+| =stc_01M0ZGGMZ5GF44D2R8M7FT4GYG= | claude_code, codex | 2 | conclusion asserts unsupported causation |
+| =stc_01M0ZGGPA4W87FCF28W9RBCS50= | claude_code | 1 | a cross-entity conclusion needs 2 distinct entities; got 1; a conclusion needs 2 independent source families; got 1 after mirrored-evidence normalization; conclusion asserts unsupported causation |
+
+*** The trigger names the session it will return
+=POST /api/strategy/sessions= answered =202= with
+=run_id=run_18718026c162e7c6= and
+=session_id=sts_01M0ZGG793KQK3BTCVPAP3DH2D= — before the dispatcher had replied.
+The Runtime is what creates a session, so a brand-new period has no ID to report
+yet; a period that already has one is named immediately, because that is the
+session the lease will return. The period was
+=2026-08-17T00:00:00Z= → =2026-08-24T00:00:00Z=.
+
+*** Run Strategy Session, layer 1: an in-flight duplicate click
+A second POST while the first run was still dispatching returned the *same* run:
+=run_id= =run_76e5dc9b67eca00d=, =duplicate: true=, and the
+dispatcher was called once.
+
+*** Run Strategy Session, layer 2: the shared lease
+The stream for that run closed with:
+
+#+begin_example
+{
+  "brief_id": "brf_2026w35-pap3dh2d",
+  "duplicate": true,
+  "session_id": "sts_01M0ZGG793KQK3BTCVPAP3DH2D",
+  "state": "completed"
+}
+#+end_example
+
+A third trigger fired *after* the run finished started a new dashboard run
+(=run_f1bc87bef114aa92=) and closed with the identical session and
+brief:
+
+#+begin_example
+{
+  "brief_id": "brf_2026w35-pap3dh2d",
+  "duplicate": true,
+  "session_id": "sts_01M0ZGG793KQK3BTCVPAP3DH2D",
+  "state": "completed"
+}
+#+end_example
+
+Both triggers normalized to the same bounded period,
+=2026-08-17T00:00:00Z= → =2026-08-24T00:00:00Z= (ISO week
+2026-W34), which is the lease identity the completed session already holds. The
+decisive evidence is in the store: Firestore =strategy_sessions= stayed at
+3 and =briefs= at
+1 across both triggers. No session was created and
+no model was called.
+
+*** The safe event stream
+| seq | event | agent | state | origin |
+|-----+-------+-------+-------+--------|
+| 0 | =run_started= | =tycho_strategy_council= | dispatching | live |
+| 1 | =agent_completed= | =strategy_context= | completed | derived |
+| 2 | =agent_completed= | =tycho_strategist= | completed | derived |
+| 3 | =card_rejected= | =tycho_strategy_council= | rejected | derived |
+| 4 | =card_rejected= | =tycho_strategy_council= | rejected | derived |
+| 5 | =brief_completed= | =tycho_strategy_council= | completed | derived |
+| 6 | =brief_completed= | =tycho_strategy_council= | skipped | live |
+
+Every event is in the closed enum. The run emits its own =run_started= when
+the trigger is accepted; the derived replay does not repeat it. A heartbeat
+carries the last delivered sequence number and the SSE layer omits its =id=
+line, so a reconnect immediately after one cannot skip the next real event.
+
+*** No production mutation
+Counts and a content hash, taken before the first read and again after the last
+trigger:
+
+| Store | Before | After |
+|-------+--------+-------|
+| BigQuery canonical rows / v2 rows | 56 / 56 | 56 / 56 |
+| canonical Delta inventory hash | =ad16eb93e4f3bf3d3aec1847ae18f974cbf18911b5befa82aabf8cf947f606cd= | identical |
+| observations | 100 | 100 |
+| Firestore claim documents (active / retired) | 38 (11 / 27) | identical |
+| =strategy_sessions= / =strategy_leases= / =briefs= | 3 / 1 / 1 | identical |
+| =analyst_runs= / =alerts= | 57 / 0 | identical |
+
+Every value is unchanged, including the content hash. The dashboard read
+production and started one strategy trigger, and moved nothing.
+
+
+* Redaction evidence
+| Check | Result |
+|-------+--------|
+| forbidden markers in every API response | 0 hits across all 10 endpoint responses |
+| forbidden markers in the SSE stream | 0 hits across every streamed event |
+| =gs://=, =content_ref=, =content_hash= in provenance | absent by construction and asserted in tests |
+| governed prose in any derived activity event | 0 hits over every card statement, rationale, competing explanation, falsifier, rejection reason, claim statement, claim rationale, Delta summary, grounded quote, and the brief markdown |
+| dashboard log lines | route template, method, status, latency, and validated IDs only; a rejected path parameter is recorded as the literal =invalid= |
+| rejected requests | answered with a generic bounded error rather than FastAPI's default body, which would echo the caller's own input |
+| uvicorn access log | disabled; it records the raw request line including the query string |
+
+Markers searched in every response and every stream event: =gs://=,
+=content_ref=, =content_hash=, =llm_request=, =llm_response=,
+=system_instruction=, =gen_ai.prompt=, =gen_ai.completion=, =input_value=,
+=output_value=, =rendered_prompt=, =tool_definitions=.
+
+* Cost
+Measured where a number exists, bounded where it does not. Nothing here is a
+model cost: the dashboard calls no model, and the one production trigger it made
+was answered by the lease without a =generate_content= call.
+
+| Item | Measured | Cost |
+|------+----------+------|
+| Cloud Build | 4 builds, ~80-90s each on the default machine type — ~6 build-minutes total | =$0=; Cloud Build's free tier is 2,500 build-minutes/month |
+| Artifact Registry | 4 image versions of one buildpack Python image | storage only; a Python buildpack image is on the order of ~1 GB with shared base layers, so roughly =$0.10–0.20/month= at $0.10/GB-month. The API did not report a per-image size, so this is an estimate, not a reading |
+| Cloud Run, idle | min instances =0= | =$0=. The service scales to zero between demos |
+| Cloud Run, in use | 1 vCPU / 1 GiB while a request or SSE stream is open | ~=$0.005= per 10 minutes of active use at list price |
+| BigQuery | on-demand queries over a 56-row Delta table and a 100-row observation table; ~50 queries during verification, each billed at the 10 MB minimum | under =$0.01=, and inside the 1 TiB/month free tier |
+| Firestore | ~40 document reads per snapshot, cached 60 seconds | inside the 50k reads/day free tier |
+| Strategy trigger | one dispatcher call, answered =skipped=true= by the lease | =$0= in model cost; zero new sessions, zero =generate_content= spans |
+
+The dominant ongoing cost is image storage, and it is small. The dominant
+one-time cost was the build, and it was free.
+
+* Screenshots checklist
+The landing-page screenshot was captured in this session. Each remaining item
+below is reachable from the demo sequence, in order, through
+=gcloud run services proxy tycho-dashboard --region us-central1=.
+
+- [X] *Landing page* — Tycho name, the one-line promise, the four fleet-health
+  pills, and all four competitor cards, including Gemini CLI showing its honest
+  "no active claim" state. Screenshot: =docs/screenshots/intelligence-dashboard-overview.png=
+- [ ] *Belief timeline* — a competitor selected, showing =created= and =retired=
+  events with their lifecycle colours and the pinned =clm_… · v1= line under
+  each. If a supersession exists by then, capture the linked replacement pair.
+- [ ] *Provenance drawer* — opened from a claim, showing the exact version, the
+  canonical Delta ID, the grounded quote, the before/after observation IDs, and
+  the configured source URL.
+- [ ] *Strategy brief* — the stored empty brief, with the =Rejected by Challenger
+  and evidence rules (2)= section expanded to show both cards and their
+  deterministic rejection reasons.
+- [ ] *Run Strategy Session, in flight* — the button disabled, the run note, and
+  the agent-activity timeline receiving events.
+- [ ] *Run Strategy Session, finished* — the derived timeline naming
+  =Context builder=, =Strategist=, and =Strategy Council=, and the note saying
+  the session was returned by the lease without a model call.
+- [ ] *403 without an approved identity* — the deployed URL opened directly in a
+  browser with no proxy.
+
+* Demo sequence
+Six steps, none of which depends on new external data arriving.
+
+1. *Landing.* Four fleet-health pills and four competitor cards, each with its
+   latest meaningful canonical change, its active verified fact count, and when
+   it was last observed and verified.
+2. *Open a competitor.* Click a card; the belief timeline filters to that
+   entity. Every event pins =(claim_id, version)=. Retirement events carry the
+   governed reason recorded during the legacy-evidence migration.
+3. *Open the latest Strategy Brief.* The stored brief for ISO week 2026-W34,
+   with its session ID, period, card counts, pinned claim-version count, and
+   context size.
+4. *Expand =Rejected by Challenger=.* Both production cards, with the
+   deterministic reasons Python generated: one failed only the
+   conclusion-language policy despite clearing both diversity rules; the other
+   failed entity diversity, source-family diversity after mirrored-evidence
+   normalization, *and* conclusion language.
+5. *Click Run Strategy Session.* The stream opens, heartbeats appear while the
+   dispatcher works, and the session comes back through the lease with no model
+   call. The activity timeline then names the workflow's agents.
+6. *Open the provenance drawer.* From any claim or premise chip: current claim
+   and exact version, lifecycle links, the canonical Delta's category, source,
+   and grounded quote, the before/after observation IDs, and the configured
+   source URL.
+
+* Definition of done
+| Requirement | State |
+|-------------+-------|
+| one deployed page showing competitors, beliefs, strategy, agents, and provenance | done |
+| every displayed conclusion resolves to exact claim versions and canonical Gemini Deltas | done; premise chips carry =(claim_id, version)= and recomputed Delta IDs |
+| passed and rejected Challenger outcomes visible | done; the production session has 0 passed and 2 rejected, both shown with their reasons |
+| Run Strategy Session streams safe progress and is duplicate-safe | done; two independent layers, both verified in production |
+| no generic chat or arbitrary prompting exists | done; no text input renders anywhere on the page, asserted by a test |
+| browser has no cloud credentials or direct database access | done; same-origin API only, service-account auth server-side |
+| dashboard cannot mutate claims/Deltas or read raw/archive data | done; read-only identity, nine-method read surface, canonical-v2-only queries |
+| full backend/frontend/end-to-end tests pass | done; 488 backend, 66 frontend, 14 end-to-end checks |
+| the six-step demo works without waiting for new external data | done |
+
+* Still open
+- *Screenshots.* The landing-page screenshot is captured; the remaining items still need a browser session.
+- *No strategy card has passed in production yet.* The three claim-bearing
+  entities each publish through one source family, so a card must clear both
+  diversity rules and the conclusion-language policy. The next scheduled session
+  is =2026-08-31T06:00:00Z=. The dashboard displays that empty result honestly
+  and does not manufacture a conclusion; that was the point.
+- *No supersession chain exists in production yet*, so the timeline's
+  replacement-link rendering is currently exercised only by tests and fixtures.
+  Retirement chains are live and visible.
+- =GOOGLE_API_KEY= in the local =.env= still needs rotation before sharing. The
+  dashboard neither reads nor deploys it.

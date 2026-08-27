@@ -13,7 +13,7 @@
 project := env_var_or_default("TYCHO_PROJECT", "gen-lang-client-0110801105")
 region := env_var_or_default("TYCHO_REGION", "us-central1")
 python := env_var_or_default("TYCHO_PYTHON", "3.13")
-packages := "adapters experiments infra pipeline platform_spike runtime_agent schemas strategy_agent tests"
+packages := "adapters dashboard experiments infra pipeline platform_spike runtime_agent schemas strategy_agent tests"
 
 # Show every available command.
 default: help
@@ -103,6 +103,60 @@ strategy-stats:
 strategy-clean:
     rm -rf {{ strategy_dir }} data/strategy_local_session.json
 
+# --- Intelligence dashboard -------------------------------------------------
+#
+# The frontend is a separate npm workspace under dashboard/frontend. Its build
+# output (dist/) is what the Cloud Run service serves, so `dashboard-build` is
+# a prerequisite of `dashboard-deploy`.
+
+dashboard_dir := "dashboard/frontend"
+
+# Install the pinned frontend dependencies from package-lock.json.
+dashboard-install:
+    cd {{ dashboard_dir }} && npm ci
+
+# Type-check and build the dashboard bundle into dashboard/frontend/dist.
+dashboard-build:
+    cd {{ dashboard_dir }} && npm run build
+
+# Run the frontend test suite (Vitest + Testing Library, jsdom).
+dashboard-test-ui:
+    cd {{ dashboard_dir }} && npm test
+
+# Run only the dashboard backend suites.
+dashboard-test:
+    uv run pytest tests/test_dashboard_readmodel.py tests/test_dashboard_api.py \
+        tests/test_dashboard_activity.py tests/test_dashboard_runs.py \
+        tests/test_dashboard_deploy.py
+
+# Serve the dashboard locally against production read-only data (needs ADC).
+dashboard-serve port="8080":
+    TYCHO_PROJECT={{ project }} \
+    TYCHO_DASHBOARD_STATIC={{ dashboard_dir }}/dist \
+    TYCHO_STRATEGY_DISPATCHER_URL="$(gcloud run services describe tycho-strategy-dispatcher \
+        --region {{ region }} --project {{ project }} --format='value(status.url)')" \
+    uv run uvicorn dashboard.api.main:app --host 127.0.0.1 --port {{ port }} --no-access-log
+
+# Print the dashboard deployment plan. Contacts nothing.
+dashboard-plan:
+    uv run python -m infra.deploy_dashboard plan \
+        --project {{ project }} --region {{ region }}
+
+# Read every deployed dashboard resource back. Writes nothing.
+dashboard-readback:
+    uv run python -m infra.deploy_dashboard readback \
+        --project {{ project }} --region {{ region }}
+
+# Record the untouched strategy/analyst state and the data counts. Reads only.
+dashboard-snapshot:
+    uv run python -m infra.deploy_dashboard snapshot \
+        --project {{ project }} --region {{ region }}
+
+# Verify the deployed private dashboard end to end. Reads only.
+dashboard-verify:
+    uv run python -m dashboard.e2e.verify_dashboard \
+        --project {{ project }} --region {{ region }}
+
 # --- Read-only cloud inspection --------------------------------------------
 
 # Read-only cutover inspection and validation queries. Writes nothing.
@@ -149,6 +203,16 @@ cutover-apply: (_confirm "apply the resumable strict Delta@2 table cutover")
 strategy-deploy: (_confirm "deploy the Tycho Strategy Council production path")
     uv run python -m infra.deploy_strategy_council deploy --resume \
         --project {{ project }} --location {{ region }}
+
+# PRODUCTION: build and deploy the private Intelligence Dashboard.
+dashboard-deploy: dashboard-build (_confirm "deploy the Tycho Intelligence Dashboard")
+    uv run python -m infra.deploy_dashboard deploy --resume \
+        --project {{ project }} --region {{ region }}
+
+# PRODUCTION: allow one named identity to open the private dashboard.
+dashboard-grant member: (_confirm "grant dashboard access")
+    uv run python -m infra.deploy_dashboard grant-viewer --member {{ member }} \
+        --project {{ project }} --region {{ region }}
 
 # PRODUCTION: deploy cloud resources and the acquisition job.
 deploy: (_confirm "deploy Tycho cloud resources")

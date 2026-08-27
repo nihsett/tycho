@@ -626,6 +626,63 @@ otherwise reach a session, lease, or log. One sanitizer reduces every failure to
 a stage, an exception class name, and a curated reason; an unrecognised class
 collapses to a generic reason rather than falling through to its own text.
 
+* Intelligence dashboard
+One private Cloud Run service, =tycho-dashboard=, is the fleet's read surface.
+It answers four questions on one page: what changed across competitors, what
+Tycho currently believes, which strategic conclusions survived challenge, and
+exactly which evidence caused each conclusion or belief change.
+
+** Boundary
+The browser never receives a Google credential and never talks to Firestore,
+BigQuery, Agent Runtime, or Pub/Sub. The API uses its own Cloud Run service
+account, which is read-only on data: =roles/bigquery.dataViewer=,
+=roles/bigquery.jobUser=, =roles/datastore.viewer=, =roles/logging.logWriter=,
+plus =roles/run.invoker= on the strategy dispatcher service alone. It cannot
+write a claim or Delta, publish to Pub/Sub, read Cloud Storage, or invoke the
+Analyst Runtime.
+
+** Read model
+Route handlers call named methods; they never embed a query. The rules:
+- canonical =tycho.deltas= only, pinned to =schema_version = 'delta@2'=; the
+  archived =delta_audit_log_*= table is unreachable from dashboard code;
+- exact claim version reconstruction: the current version is the live claim, an
+  earlier version is reconstructed from the embedded history and labelled as
+  such, and a version that never existed is a 404;
+- active/stale/disputed/superseded counts are computed deterministically, with
+  =stale= from the =tycho.yaml= threshold and =disputed= derived from active
+  inbound =disputes= links;
+- strategy sessions and briefs are loaded by immutable ID;
+- stable ordering, bounded pagination, and server-side enum/limit validation;
+- a bounded cache for overview and health only; an in-progress strategy event
+  stream is never cached as completed;
+- no raw GCS payload is fetched. The canonical grounded quote already stored in
+  the Delta is the evidence the dashboard shows, alongside observation IDs and
+  the source URL or repository recorded in =tycho.yaml=.
+
+** Strategy trigger
+The =Run Strategy Session= button starts only the fixed bounded workflow. It
+posts ={"trigger":"dashboard","period":"previous_complete_week"}= to the
+existing private dispatcher; there is no field for a prompt, model, scope, or
+evidence policy. Duplicate protection has two independent layers: the dashboard
+refuses a second run for the same bounded period while one is in flight, and the
+dispatcher and Runtime share the transactional
+=(period_from, period_to, strategy_version)= lease, so a racing trigger returns
+the existing session with =skipped=true= and no model call.
+
+** Agent activity
+The council's in-flight events are not persisted, so the dashboard reconstructs
+a structural timeline from the session record — agent name, state, card counts,
+claim versions, run IDs — and labels it as derived. Rejection reasons are
+reduced to deterministic class names before they become events. Prompts, model
+responses, hidden thoughts, tool arguments, raw source content, tokens,
+credentials, and stack traces are never displayed in that timeline. Card text
+and brief prose appear only in the Strategy Brief panel, which is the product.
+
+** V1 fence
+No chatbot, no arbitrary query endpoint, no free-form prompt field, no admin
+console, no data explorer, no design system, and no automatic alert, Slack, or
+email delivery.
+
 * Repo layout
 #+begin_src
 tycho/
@@ -668,9 +725,15 @@ tycho/
   runtime_agent/     # request-scoped Agent Runtime wrapper; no outer model
   strategy_agent/    # the three named council agents, workflow, citations,
                      # safe events, request contract, synthetic fixtures
+  dashboard/
+    api/             # FastAPI read model, bounded response schemas, safe agent
+                     # activity, duplicate-safe strategy trigger and SSE
+    frontend/        # React + TypeScript + Vite; one typed API client
+    e2e/             # read-only production verification of the deployed service
   infra/             # bootstrap, additive Delta schema migration, deploy scripts,
-                     # resumable strategy-council deployment, read-only
-                     # production session/telemetry verification
+                     # resumable strategy-council deployment, resumable dashboard
+                     # deployment, read-only production session/telemetry
+                     # verification
   tests/              # schema, grounding, retry, storage, and mode regressions
 #+end_src
 
@@ -704,7 +767,10 @@ tycho/
 - No dynamic ontology growth. The tree is a v1 constant.
 - No strategy-RECOMMENDATION agent. The strategy council concludes what is
   presently true and what would falsify it; it never recommends an action.
-- No multi-tenancy. No auth. No more than 4 entities, 4 source types.
+- No multi-tenancy. No more than 4 entities, 4 source types. The dashboard is
+  private Cloud Run with explicit per-identity access, not an application login.
+- No generic chatbot, arbitrary query endpoint, or free-form prompt field in the
+  dashboard. The only action it can start is the fixed strategy workflow.
 - X/social adapter is optional; cut without guilt if flaky by day 3.
 
 * Open items (decide later, do not block)
