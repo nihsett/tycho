@@ -8,19 +8,16 @@ A fresh session MUST read these files completely, in this order:
 2. =docs/architecture.md= — user/Claude architecture and runtime design.
 3. This file — current implementation and operational state.
 
-Working directory:
-=/home/nihar/Work/ATA-Hackathon/tycho=
+Working directory: the repository root.
 
-This directory is a Git repository on branch =main=, pushed to the private
-GitHub repository =nihsett/tycho=. =just= is the command interface; see the
-=Justfile= and =README.md=. GitHub Actions runs only =just ci= (lock check,
-lint, compile, pytest) with no GCP access and no repository secrets.
+This directory is a Git repository on branch =main=, pushed to the GitHub
+repository =nihsett/tycho=. =just= is the command interface; see the =Justfile=
+and =README.md=. GitHub Actions runs =just ci= for the Python lock, lint,
+compile, and test gate, plus a separate frontend test/build gate. Neither uses
+GCP access or repository secrets.
 
-A second worktree for the strategy work lives at
-=/home/nihar/Work/ATA-Hackathon/tycho-strategy= on branch
-=feat/strategy-council=. A third, for the dashboard, lives at
-=/home/nihar/Work/ATA-Hackathon/tycho-dashboard= on branch
-=feat/intelligence-dashboard=.
+The strategy and dashboard feature branches were developed in sibling
+worktrees and merged into =main=.
 
 * Current headline
 Tycho runs locally and in GCP for four coding-agent entities. Acquisition and
@@ -36,9 +33,9 @@ preserved immutably in =tycho.delta_audit_log_20260826=. The Strategy Council
 now runs in production on its own Agent Runtime, dispatcher, and weekly
 Scheduler job.
 
-The Intelligence Dashboard is deployed as its own private Cloud Run service,
-=tycho-dashboard=, reading governed memory only and reusing the existing private
-Strategy dispatcher for its one action.
+The Intelligence Dashboard is deployed as its own public read-only Cloud Run
+service, =tycho-dashboard=, reading governed memory only and reusing the
+existing private Strategy dispatcher for its one action.
 
 Every gate is closed.
 
@@ -89,10 +86,10 @@ Cron is active. Host timezone is =Asia/Kolkata=.
 
 #+begin_src cron
 # GitHub releases: 02:00 UTC = 07:30 Asia/Kolkata
-30 7 * * * cd '/home/nihar/Work/ATA-Hackathon/tycho' && '/home/nihar/.local/share/mise/installs/uv/latest/uv-x86_64-unknown-linux-musl/uv' run python -m pipeline.run_local --source github_releases >> '/home/nihar/Work/ATA-Hackathon/tycho/data/fleet.log' 2>&1
+30 7 * * * cd '/path/to/tycho' && uv run python -m pipeline.run_local --source github_releases >> data/fleet.log 2>&1
 
 # Official changelogs: 04:00 UTC = 09:30 Asia/Kolkata
-30 9 * * * cd '/home/nihar/Work/ATA-Hackathon/tycho' && '/home/nihar/.local/share/mise/installs/uv/latest/uv-x86_64-unknown-linux-musl/uv' run python -m pipeline.run_local --source website_changelog >> '/home/nihar/Work/ATA-Hackathon/tycho/data/fleet.log' 2>&1
+30 9 * * * cd '/path/to/tycho' && uv run python -m pipeline.run_local --source website_changelog >> data/fleet.log 2>&1
 #+end_src
 
 Cron only runs while this machine is on. The runner has a file lock, so overlapping
@@ -488,11 +485,9 @@ Only =dashboard-deploy= and =dashboard-grant= write, and both require an
 interactive =yes=.
 
 ** Access for a demo
-#+begin_src bash
-gcloud run services proxy tycho-dashboard --region us-central1 \
-  --project gen-lang-client-0110801105
-# then open http://127.0.0.1:8080
-#+end_src
+Open the public read-only judging instance:
+
+=https://tycho-dashboard-u2s544lf5a-uc.a.run.app=
 
 * Recommended next session
 Both gates are closed out. The strict BigQuery table swap completed on
@@ -501,10 +496,10 @@ Both gates are closed out. The strict BigQuery table swap completed on
 table is gone), and the Strategy Council production path is deployed and
 validated — see =Strategy council — production (2026-08-26)= below.
 
-The cutover itself was executed and recorded in the *main* worktree
-(=/home/nihar/Work/ATA-Hackathon/tycho=); its evidence lives in that copy of
-=handoff.org=, =docs/semantic-delta-deployment-evidence.org=, and
-=data/semantic_delta_cutover_evidence.json=. This branch re-verified the
+The cutover itself was executed and recorded in the *main* worktree; its
+evidence lives in =handoff.org=,
+=docs/semantic-delta-deployment-evidence.org=, and
+=data/semantic_delta_cutover_evidence.json=. The strategy branch re-verified the
 resulting state read-only before deploying; the readback is in
 =docs/strategic-agent-fleet-evidence.org=.
 

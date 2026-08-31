@@ -1,5 +1,5 @@
 import type { StrategySessionResponse } from "../lib/types";
-import { countWord } from "../lib/format";
+import { countWord, periodLabel } from "../lib/format";
 
 interface Props {
   data: StrategySessionResponse | null;
@@ -21,9 +21,12 @@ export function StrategyVerdict({ data, loading, error }: Props) {
     title = "No strategy conclusion yet.";
     explanation = data?.waiting_for ?? "Tycho is waiting for its first completed strategy brief.";
   } else if (!loading && passed === 0) {
-    title = "No market-wide pattern passed verification for August 17–23.";
-    explanation =
-      "Tycho rejected weak conclusions rather than manufacturing one.";
+    const period = data?.brief ?? data?.session;
+    const label = period
+      ? periodLabel(period.period_from, period.period_to)
+      : "the latest period";
+    title = `No market-wide pattern passed verification for ${label}.`;
+    explanation = "Tycho rejected weak conclusions rather than manufacturing one.";
   } else if (!loading) {
     const count = countWord(passed);
     const displayCount = count.charAt(0).toUpperCase() + count.slice(1);

@@ -1,7 +1,9 @@
 [project]
 name = "tycho-intel"
 version = "0.1.0"
-description = "Competitive intelligence fleet with claim-based memory"
+description = "Autonomous competitive intelligence with governed, versioned beliefs"
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
   "beautifulsoup4>=4.12,<5",

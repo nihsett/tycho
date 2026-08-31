@@ -8,6 +8,8 @@ data/
 **/*.pyc
 tests/
 docs/
+video/
+.github/
 schemas/fixtures/
 # Only the built dashboard bundle ships. Sources, dev dependencies, and the
 # frontend toolchain stay out of the image.

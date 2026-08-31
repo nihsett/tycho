@@ -14,6 +14,7 @@ import { AgentActivityTimeline } from "./components/AgentActivityTimeline";
 import { BeliefTimeline } from "./components/BeliefTimeline";
 import { CompetitorGrid } from "./components/CompetitorGrid";
 import { FleetHealthBar } from "./components/FleetHealthBar";
+import { OntologyMap } from "./components/OntologyMap";
 import { ProvenanceDrawer } from "./components/ProvenanceDrawer";
 import { RunStrategyButton } from "./components/RunStrategyButton";
 import { StrategyBrief } from "./components/StrategyBrief";
@@ -174,6 +175,8 @@ export function App() {
       </header>
 
       <main id="main">
+        <OntologyMap scopes={meta?.scopes ?? []} />
+
         <WeeklyOverview
           overview={overview}
           strategy={strategy}

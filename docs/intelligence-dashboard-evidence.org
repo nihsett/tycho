@@ -3,6 +3,15 @@
 #+STARTUP: overview
 
 * How to read this document
+
+#+begin_quote
+*Current access note (2026-08-31):* The judging revision is now public and
+read-only at =https://tycho-dashboard-u2s544lf5a-uc.a.run.app=. Its data IAM is
+unchanged. The deployment and verification record below deliberately preserves
+the original private 2026-08-27 state; the current end-to-end verifier now
+checks the public read surface.
+#+end_quote
+
 Three records, in the order they happened:
 1. *What was built* — the read model, the API, the frontend, and their tests.
 2. *Deployment* — the private Cloud Run service, its identity, its exact IAM,

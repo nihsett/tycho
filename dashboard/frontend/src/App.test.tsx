@@ -15,7 +15,16 @@ import {
 
 const META = {
   entities: ["claude_code", "codex", "gemini_cli", "pi"],
-  scopes: ["pricing", "product/capabilities"],
+  scopes: [
+    "identity",
+    "product/capabilities",
+    "product/roadmap",
+    "pricing",
+    "gtm",
+    "team",
+    "traction",
+    "sources",
+  ],
   service: "tycho-dashboard",
   revision: "tycho-dashboard-00001-abc",
 };
@@ -82,6 +91,13 @@ describe("the dashboard page", () => {
       screen.getByText("Competitive intelligence that shows why its beliefs changed."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh strategy brief" })).toBeInTheDocument();
+    const ontology = await screen.findByRole("region", {
+      name: "Every entity has a versioned belief tree.",
+    });
+    expect(within(ontology).getByText("Entity")).toBeInTheDocument();
+    expect(within(ontology).getByText("Product")).toBeInTheDocument();
+    expect(within(ontology).getByText("Capabilities")).toBeInTheDocument();
+    expect(within(ontology).getByText("Supersession history")).toBeInTheDocument();
     expect(screen.getByText("Sources watched")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Fleet health")).toBeInTheDocument());
   });

@@ -181,6 +181,141 @@ button.ghost:hover { background: var(--panel-soft); }
 }
 .run-note[data-tone="failed"] { color: var(--failed); }
 
+/* --- Durable knowledge model ------------------------------------------- */
+
+.ontology-map {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 2.2fr);
+  gap: 28px;
+  align-items: center;
+  margin-top: 22px;
+  border: 1px solid #c9d8d4;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 20px 23px;
+}
+.ontology-map h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+.ontology-copy > p:last-child {
+  max-width: 43ch;
+  margin: 7px 0 0;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.ontology-visual { min-width: 0; }
+.ontology-tree {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.ontology-root {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: #f1f8f7;
+  padding: 10px 12px;
+}
+.ontology-root::after {
+  position: absolute;
+  top: 50%;
+  right: -19px;
+  width: 18px;
+  border-top: 1px solid var(--line-strong);
+  content: "";
+}
+.ontology-root strong {
+  color: var(--accent-deep);
+  font-size: 14px;
+}
+.ontology-root span {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.ontology-branches,
+.ontology-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ontology-branches {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(76px, 1fr));
+  gap: 7px;
+  border-left: 1px solid var(--line-strong);
+  padding-left: 11px;
+}
+.ontology-branch {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 7px 8px;
+}
+.ontology-branch > span {
+  display: block;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.ontology-children {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  border-left: 1px solid var(--accent);
+  padding-left: 5px;
+}
+.ontology-children .ontology-branch {
+  border: 0;
+  border-radius: 4px;
+  background: #edf5f3;
+  padding: 4px 5px;
+}
+.ontology-children .ontology-branch > span {
+  color: var(--accent-deep);
+  font-size: 9px;
+}
+.ontology-loading {
+  margin: 0;
+  border-left: 1px solid var(--line-strong);
+  color: var(--ink-3);
+  padding: 12px;
+}
+.knowledge-chain {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  list-style: none;
+  margin: 9px 0 0 146px;
+  padding: 0;
+}
+.knowledge-chain li {
+  display: flex;
+  align-items: center;
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.knowledge-chain li:not(:last-child)::after {
+  margin: 0 7px;
+  color: var(--accent);
+  content: "→";
+}
+
 /* --- Weekly overview ---------------------------------------------------- */
 
 .weekly-overview {
@@ -759,6 +894,7 @@ footer.legend {
 }
 
 @media (max-width: 1080px) {
+  .ontology-map { grid-template-columns: 1fr; gap: 16px; }
   .weekly-overview { grid-template-columns: 1fr; gap: 20px; }
   .weekly-fact:first-child { border-left: 0; padding-left: 0; }
   .competitor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -771,6 +907,10 @@ footer.legend {
   .masthead { flex-direction: column; gap: 16px; }
   .run-strategy { align-items: flex-start; min-width: 0; }
   .run-note { max-width: 48ch; text-align: left; }
+  .ontology-map { padding: 18px 19px; }
+  .ontology-tree { grid-template-columns: 112px minmax(0, 1fr); }
+  .ontology-branches { grid-template-columns: repeat(4, minmax(76px, 1fr)); }
+  .knowledge-chain { margin-left: 130px; flex-wrap: wrap; row-gap: 4px; }
   .weekly-overview { padding: 21px 19px; }
   .weekly-facts { grid-template-columns: repeat(2, 1fr); }
   .weekly-fact { min-height: 80px; border-top: 1px solid var(--line); border-left: 0; padding: 13px 0; }
@@ -789,6 +929,10 @@ footer.legend {
 }
 
 @media (max-width: 520px) {
+  .ontology-tree { grid-template-columns: 1fr; }
+  .ontology-root::after { display: none; }
+  .ontology-branches { grid-template-columns: repeat(2, minmax(0, 1fr)); border-left: 0; padding-left: 0; }
+  .knowledge-chain { margin-left: 0; }
   .competitor-grid { grid-template-columns: 1fr; }
   .workflow-steps { grid-template-columns: 1fr; }
   .workflow-steps li,

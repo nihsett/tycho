@@ -9,10 +9,22 @@ __pycache__/
 
 # Credentials. Never commit; rotate if ever exposed.
 .env
+*.key
+video/.elevenlabs_key
 
 # Local runtime state: SQLite stores, write-once raw payloads, fleet logs,
 # calibration output, and machine-generated evidence reports.
 data/
+
+# Frontend dependencies and build output.
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
+
+# Generated narration, captions, and rendered recordings.
+video/out/
+video/out-v2/
+video/*.mkv
+video/*.mp4
 
 # Editor and OS noise
 .DS_Store

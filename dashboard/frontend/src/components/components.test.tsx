@@ -248,9 +248,17 @@ describe("strategy verdict", () => {
   it("states plainly when no market-wide pattern survives verification", () => {
     const data = strategySession();
     data.passed_cards = [];
+    if (data.session) {
+      data.session.period_from = "2026-08-24T00:00:00Z";
+      data.session.period_to = "2026-08-31T00:00:00Z";
+    }
+    if (data.brief) {
+      data.brief.period_from = "2026-08-24T00:00:00Z";
+      data.brief.period_to = "2026-08-31T00:00:00Z";
+    }
     render(<StrategyVerdict data={data} loading={false} error={null} />);
     expect(
-      screen.getByText("No market-wide pattern passed verification for August 17–23."),
+      screen.getByText("No market-wide pattern passed verification for August 24–30, 2026."),
     ).toBeInTheDocument();
     expect(screen.getByText("Tycho rejected weak conclusions rather than manufacturing one.")).toBeInTheDocument();
   });

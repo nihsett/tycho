@@ -1,22 +1,21 @@
-"""Verify the deployed private dashboard end to end. Reads only.
+"""Verify the deployed public read-only dashboard end to end.
 
     uv run python -m dashboard.e2e.verify_dashboard
 
 What this proves, against the real deployed service and real production data:
 
-1. the service is private - an unauthenticated browser request gets 403;
-2. every read endpoint answers through an authenticated proxy, with the
-   security headers set and no CORS header;
-3. one Run Strategy Session trigger reaches the existing private Strategy
+1. the public read surface answers without a Google credential;
+2. every read endpoint sets the required security headers and no CORS header;
+3. one bounded Strategy Session trigger reaches the existing private Strategy
    dispatcher, and the shared lease makes it duplicate-safe;
 4. the safe SSE stream carries structure only;
 5. the stored brief, the rejected cards, and one claim -> Delta -> Observation
    provenance chain all resolve;
 6. no claim, Delta, Observation, session, or brief changed as a result.
 
-The authenticated hop is ``gcloud run services proxy``, which is exactly the
-documented demo access method: the operator's own identity, no key material, and
-nothing durable created.
+The complete verification still uses ``gcloud run services proxy`` so it can
+read the exact deployed service selected by project and region. The public probe
+itself goes directly to the Cloud Run URL with no key material or identity token.
 """
 
 from __future__ import annotations
@@ -155,10 +154,11 @@ def run_verification(args: argparse.Namespace) -> dict[str, Any]:
         "checks": {},
     }
 
-    anonymous = httpx.get(url, timeout=30.0, follow_redirects=False)
-    report["checks"]["anonymous_request"] = {
-        "status": anonymous.status_code,
-        "private": anonymous.status_code in {401, 403},
+    public = httpx.get(f"{url}/api/meta", timeout=30.0, follow_redirects=False)
+    report["checks"]["public_request"] = {
+        "status": public.status_code,
+        "available": public.status_code == 200,
+        "headers": check_headers(public.headers),
     }
 
     report["data_before"] = data_snapshot(args.project)
@@ -439,7 +439,10 @@ def verdict(report: dict[str, Any]) -> dict[str, bool]:
     checks = report["checks"]
     reads = checks["reads"]
     return {
-        "service_is_private": checks["anonymous_request"]["private"],
+        "public_read_surface_is_available": bool(
+            checks["public_request"]["available"]
+            and not checks["public_request"]["headers"]["missing"]
+        ),
         "every_read_succeeded": all(item["status"] == 200 for item in reads.values()),
         "security_headers_present": all(
             not item["headers"]["missing"] for item in reads.values()

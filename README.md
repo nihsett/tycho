@@ -1,363 +1,188 @@
 # Tycho
 
-Tycho watches fast-moving coding agents and turns immutable source changes into
-versioned, evidenced claims. The v1 tracer tracks:
+> An autonomous competitive-intelligence fleet that accumulates evidence, revises versioned beliefs, and refuses conclusions it cannot support.
 
-- Claude Code — `anthropics/claude-code`
-- OpenAI Codex — `openai/codex`
-- Gemini CLI — `google-gemini/gemini-cli`
-- Pi from [pi.dev](https://pi.dev) — `earendil-works/pi`
+[![CI](https://github.com/nihsett/tycho/actions/workflows/ci.yml/badge.svg)](https://github.com/nihsett/tycho/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB.svg)](pyproject.toml)
+
+[**Live dashboard**](https://tycho-dashboard-u2s544lf5a-uc.a.run.app) · [Devpost story](docs/devpost/story-v3.md) · [Architecture](docs/architecture.md) · [Production evidence](docs/strategic-agent-fleet-evidence.org)
+
+![Tycho architecture](docs/diagrams/architecture-v2.png)
+
+## What Tycho does
+
+Competitive intelligence is an ongoing evidence problem, not a one-shot search. Tycho watches the same entities over time, separates durable changes from release churn, and maintains a governed belief model in which every claim points back to immutable source evidence.
+
+The deployed demonstration market is coding agents:
+
+- Claude Code
+- OpenAI Codex
+- Gemini CLI
+- Pi
+
+Each entity is configured in [`tycho.yaml`](tycho.yaml), together with its official sources, ontology branches, staleness rules, and schedules. The production demo watches eight channels: GitHub releases and official changelogs for all four products.
+
+The fleet runs without a chat prompt:
+
+1. **Watch and record.** Cloud Scheduler starts a Cloud Run acquisition job. Raw payloads are written once to Cloud Storage and immutable Observations are appended to BigQuery.
+2. **Interpret changes.** A hash gate stops unchanged content. Changed pairs go to Gemini 3.7 Flash through Vertex AI; Python verifies every quote, ID, enum, bound, and policy rule before storing a canonical `Delta@2`.
+3. **Believe and revise.** The managed Tycho Analyst Runtime turns meaningful Deltas into versioned Firestore claims through five governed tools. Claims are superseded, never silently overwritten.
+4. **Reason and challenge.** A separate weekly Strategy Council Runtime drives a Strategist, Challenger, and Brief Writer over exact pinned claim versions. Python gates run between every role.
+5. **Explain.** The dashboard resolves a belief or conclusion to its claim version, canonical Delta, grounded quote, and before/after Observation IDs.
+
+## Why it is different
+
+| | Scraper or summarizer | Tycho |
+|---|---|---|
+| Evidence | Reads the latest page | Preserves immutable before/after Observations |
+| Change detection | Text diff or fresh summary | Grounded semantic Delta with exact quotes |
+| Memory | Replaces the previous summary | Versions and supersedes evidenced claims |
+| Contradiction | Quietly changes the answer | Records disputes until stronger evidence resolves them |
+| Strategy | Produces plausible prose | Requires independent premises and adversarial challenge |
+| Weak evidence | Usually still answers | Publishes an explicit empty brief |
+
+The latest autonomous weekly session demonstrated that last property. It pinned 23 exact claim versions, made one Gemini call, rejected the proposed market conclusion for failing evidence rules, and wrote an empty brief rather than manufacture a pattern. Repeating the same period returned the existing Firestore-leased session without a second model call.
+
+## Durable knowledge model
+
+Every entity uses the same fixed ontology:
+
+```text
+Entity
+├── Identity
+├── Product
+│   ├── Capabilities
+│   └── Roadmap
+├── Pricing
+├── Go to market
+├── Team
+├── Traction
+└── Sources
+
+Claim ID → version → evidence → supersession history
+```
+
+Firestore is deliberately the authoritative belief ledger instead of conversational memory. Tycho needs exact versions, transactions, evidence references, and lifecycle invariants. BigQuery and Cloud Storage remain the immutable evidence plane.
+
+## Google Cloud and agent platform
+
+- **Google ADK** for the Analyst, Strategist, Challenger, and Brief Writer
+- **Gemini on Vertex AI** for semantic change interpretation and agent reasoning
+- **Gemma** at the acquisition boundary for semantic prompt-injection screening
+- **Two managed Agent Runtimes**, automatically cataloged in **Agent Registry**
+- Separate managed **Agent Identities** and least-privilege IAM
+- **Cloud Run** for acquisition, bounded dispatchers, and the dashboard
+- **Cloud Scheduler** for nightly acquisition and the weekly council
+- **BigQuery + Cloud Storage** for immutable evidence
+- **Firestore** for versioned claims, sessions, briefs, transactions, and leases
+- **Pub/Sub** for authenticated meaningful-Delta delivery
+- **Cloud Trace + OpenTelemetry** for structural telemetry with governed prose removed before export
+
+The model identifier used by every production run is persisted with that run. Gemini 3.7 Flash is the semantic differ and current code default; the recorded 31 August Strategy Council run used `gemini-3.5-flash-lite`.
+
+## Production snapshot
+
+As of 31 August 2026, the public dashboard reads real Google Cloud state:
+
+- 8 official source watchers
+- 132 immutable Observations
+- 79 canonical Deltas: 25 meaningful and 54 noise
+- 23 active verified claims
+- 4 monitored entities
+- Latest weekly result: 1 card proposed, 1 rejected, 0 published
+
+The dashboard is public for judging. Its service identity has read-only data roles, cannot read raw Cloud Storage payloads, and cannot write claims or Deltas. Its only write-shaped action is a fixed `previous_complete_week` Strategy Council request to a private dispatcher. The browser cannot supply a prompt, date range, model, scope, or policy, and duplicate periods resolve through the durable lease.
 
 ## Quick start
 
-Everything runs through [`just`](https://just.systems). You do not need to
-remember `uv`, pytest, Ruff, or `gcloud` invocations.
+Prerequisites:
+
+- Python 3.13
+- [`uv`](https://docs.astral.sh/uv/)
+- [`just`](https://just.systems/)
 
 ```bash
-just setup     # sync the locked Python 3.13 environment
-just check     # lock check, lint, compile, tests
-just           # list every available command
+git clone https://github.com/nihsett/tycho.git
+cd tycho
+just setup
+just check
 ```
 
-Run one local acquisition cycle:
+`just check` is offline: lock validation, Ruff, byte compilation, and 488 Python tests. It needs no Google Cloud credential and makes no model call.
+
+Run a local acquisition cycle against the configured public sources:
 
 ```bash
-just local-github   # GitHub releases for all configured entities
-just local-web      # official changelogs
-just local-stats    # counts in the local SQLite store
+just local-github
+just local-web
+just local-stats
 ```
 
-The first cycle establishes real baselines. Later cycles append immutable
-observations and deltas to `data/tycho.sqlite3`, store write-once payloads under
-`data/raw/`, and persist evidenced claims. A durable outbox retries analyst
-delivery after a crash. `pipeline/local_tracer.py` remains a stateless live-data
-replay for demos.
+The first cycle establishes baselines. Later cycles append observations and Deltas to the local SQLite store and retain write-once raw payloads under the gitignored `data/` directory.
 
-## Commands
-
-| Command | What it does |
-|---|---|
-| `just` / `just help` | List every recipe with its description |
-| `just setup` | Sync the locked Python 3.13 environment |
-| `just lint` | Run Ruff |
-| `just test` | Run pytest |
-| `just compile` | Byte-compile every Python package |
-| `just check` | Lock check, lint, compile, tests |
-| `just ci` | Noninteractive gate used by GitHub Actions |
-| `just local-github` | One local GitHub-releases acquisition cycle |
-| `just local-web` | One local changelog acquisition cycle |
-| `just local-stats` | Print local SQLite store counts |
-| `just calibrate` | Run the Gemini analyst calibration |
-| `just strategy-session` | One synthetic, offline strategy-council session |
-| `just strategy-brief` | The same, plus the rendered brief markdown |
-| `just strategy-test` | Run only the strategy test suites |
-| `just strategy-stats` | Sessions and briefs in the disposable strategy store |
-| `just strategy-clean` | Delete the disposable strategy store |
-| `just cutover-check` | Read-only BigQuery cutover inspection |
-| `just audit` | Read-only audit of the strict Delta@2 canonical table |
-| `just strategy-plan` | Print the Strategy Council deployment plan; contacts nothing |
-| `just strategy-readback` | Read every deployed Strategy Council resource back |
-| `just strategy-snapshot` | Record the untouched acquisition/Analyst production state |
-| `just strategy-verify` | Re-verify the latest production strategy session |
-| `just strategy-telemetry` | Re-inspect Runtime traces and dispatcher logs for leakage |
-| `just dashboard-install` | Install the pinned frontend dependencies (`npm ci`) |
-| `just dashboard-build` | Type-check and build the dashboard bundle |
-| `just dashboard-test` | Run only the dashboard backend suites |
-| `just dashboard-test-ui` | Run the frontend test suite (Vitest + Testing Library) |
-| `just dashboard-serve` | Serve the dashboard locally against production read-only data |
-| `just dashboard-plan` | Print the dashboard deployment plan; contacts nothing |
-| `just dashboard-readback` | Read every deployed dashboard resource back |
-| `just dashboard-snapshot` | Record the untouched strategy/analyst state and data counts |
-| `just dashboard-verify` | Read-only end-to-end verification of the deployed dashboard |
-| `just cutover-apply` | **Production** table cutover (asks for confirmation) |
-| `just strategy-deploy` | **Production** Strategy Council deployment (asks for confirmation) |
-| `just dashboard-deploy` | **Production** dashboard build and deployment (asks for confirmation) |
-| `just dashboard-grant` | **Production** grant one identity access to the dashboard (asks for confirmation) |
-| `just deploy` | **Production** deployment (asks for confirmation) |
-
-`TYCHO_PROJECT` and `TYCHO_REGION` override the project and region variables.
-The five production recipes require an interactive `yes` and fail closed
-without a terminal, so they can never run from `check`, `ci`, or the default
-recipe. Everything else in the table reads or runs locally.
-
-## How acquisition works
-
-Acquisition has one production mode: `TYCHO_DIFFER_MODE=semantic`. Every
-canonical Delta, including noise, is a validated Gemini 3.7 `delta@2`; provider
-or validation failure creates no Delta and remains retryable. Semantic attempts
-use SQLite/Firestore generation leases and retry failed pairs before fetching
-new content. The semantic differ uses Vertex/ADC, never an AI Studio API key.
-The retired deterministic differ remains only for tests and audit compatibility;
-it is not a production fallback or rollback mode.
-
-## Run the strategy council locally
-
-Three named ADK agents — `tycho_strategist`, `tycho_challenger`, and
-`tycho_brief_writer` — turn governed claims into at most three present-state
-market conclusions, and Python decides which of them survive.
+Run the synthetic Strategy Council locally:
 
 ```bash
-just strategy-session   # one session end to end, one passed and one rejected card
-just strategy-brief     # the same, plus the rendered brief
-just strategy-stats     # what landed in the disposable store
-just strategy-clean     # throw it away
+just strategy-session
+just strategy-brief
+just strategy-stats
 ```
 
-These recipes are synthetic and offline: no Gemini call, no Google Cloud access,
-and a disposable store that refuses to be `data/tycho.sqlite3`. The report lands
-in `data/strategy_local_session.json`.
+This local scenario is deterministic and offline. It uses a disposable store and makes no Gemini or Google Cloud call.
 
-What the council will not do: search the web, read raw snapshots, mutate a
-claim, recommend an action, or infer intent, causation, market leadership, or
-the future. A conclusion needs two distinct entities and two independent source
-families, where one vendor's mirrored release channels count as one family.
-Confidence never exceeds the weakest premise and is never `confirmed`. A
-Challenger `pass` is quality control, not evidence: it can only reject.
-
-## Run the strategy council in production
-
-The council runs on its own managed Agent Runtime, behind its own private
-authenticated Cloud Run dispatcher, on its own weekly Cloud Scheduler job. None
-of it shares a resource with the analyst path.
+### Dashboard development
 
 ```bash
-just strategy-plan       # what would be created, and the week a trigger resolves to
-just strategy-deploy     # confirmation required; resumable and idempotent
-just strategy-readback   # read every resource back from the API
+just dashboard-install
+just dashboard-test-ui
+just dashboard-build
 ```
 
-Deployment creates nine resources in order and persists each one the moment it
-exists, so a failed attempt resumes instead of creating a second Runtime. Every
-step is read back from the API rather than trusted from the state file, a
-resource that exists but does not match the recorded identity is a hard failure,
-and nothing is ever deleted or replaced. The Runtime identity receives exactly
-four roles — Firestore user, BigQuery data viewer, BigQuery job user, and trace
-writer — and the readback fails closed on anything wider *or* narrower.
+The frontend is React, TypeScript, and Vite. The API is FastAPI with typed bounded responses, same-origin write protection, CSP/security headers, and structural logs.
 
-The tool is structurally incapable of modifying the analyst path: every
-shell-out passes a guard that refuses any non-read-only command naming
-`tycho-analyst-push`, the analyst dispatcher or Runtime, the acquisition job,
-the nightly schedule, or the Delta topic. It reads them for before/after
-evidence and can never write them.
+## Safety boundaries
 
-The Scheduler job posts a static body naming a *period*, never a date range:
+Tycho does not rely on prompts as its security boundary:
 
-```json
-{"trigger": "scheduler", "period": "previous_complete_week"}
+- Scraped text is untrusted data and can be quarantined before reaching an agent.
+- Models cannot write directly to BigQuery, Cloud Storage, or Firestore.
+- The Analyst can act only through five lifecycle tools whose Python implementations enforce evidence rules.
+- The Strategy Council cannot browse, search, read raw snapshots, or mutate claims.
+- Cross-market conclusions need at least two entities and two independent source families.
+- Mirrored evidence from one vendor counts as one witness.
+- A Challenger can reject a card but cannot revive one that failed a hard rule.
+- Runtime traces retain structure and usage while prompts, model responses, claim text, and source quotes are removed before export.
+- Delivery and strategy execution are idempotent through transactional leases.
+
+Production deployment tools require interactive confirmation, persist resumable state, and read resources back from Google Cloud instead of trusting command success. The dashboard deployment defaults to private; the live judging instance has a separately granted public invoker binding.
+
+## Repository map
+
+```text
+adapters/          Generic source adapters
+pipeline/          Acquisition, semantic differ, claims, strategy context
+runtime_agent/     Managed Analyst Runtime wrapper and telemetry
+strategy_agent/    Strategy Council Runtime and ADK agents
+schemas/           Versioned data contracts
+dashboard/         FastAPI read model and React frontend
+infra/             Guarded, resumable Google Cloud deployment tools
+tests/             Offline backend regression suite
+docs/              Specification, architecture, and production evidence
+video/             Final narration, cue card, and generation tooling
 ```
 
-The dispatcher resolves that to the last calendar week that entirely finished,
-Monday to Monday UTC. One static body therefore yields a different, deterministic
-week every Monday, a caller cannot widen the window, and two triggers inside one
-week land on the same lease — so a duplicate returns the existing session with
-`skipped: true` and makes no model call. Unknown fields are rejected by name, so
-`prompt`, `question`, or `instructions` cannot be smuggled in and silently
-ignored.
+Useful documents:
 
-Verify a session after the fact, without writing anything:
+- [`docs/tycho-spec.org`](docs/tycho-spec.org) — product and data contract
+- [`docs/architecture.md`](docs/architecture.md) — detailed runtime architecture
+- [`docs/strategic-agent-fleet-evidence.org`](docs/strategic-agent-fleet-evidence.org) — Strategy Council resources, IAM, sessions, and telemetry
+- [`docs/agent-runtime-production-evidence.org`](docs/agent-runtime-production-evidence.org) — Analyst Runtime evidence
+- [`docs/semantic-delta-deployment-evidence.org`](docs/semantic-delta-deployment-evidence.org) — semantic Delta production evidence
+- [`docs/intelligence-dashboard-evidence.org`](docs/intelligence-dashboard-evidence.org) — dashboard read model, IAM, and verification
 
-```bash
-just strategy-verify     # re-resolves every pinned premise against the store
-just strategy-telemetry  # inspects every persisted trace and dispatcher log
-```
+Run `just` to list every local, inspection, and deployment recipe.
 
-`strategy-telemetry` does more than scan for forbidden field names. It pulls the
-governed prose the session actually read and wrote — claim statements and
-rationales, Delta change statements, grounded quotes, card text, brief prose —
-out of the store and proves none of it occurs in any exported trace or log.
+## License
 
-See `docs/strategic-agent-fleet-evidence.org` for the deployed resource IDs, the
-exact IAM, the first production session, and the telemetry inspection.
-
-## The Intelligence Dashboard
-
-One private Cloud Run service, `tycho-dashboard`, is the fleet's read surface.
-It answers four questions on one page: what changed across competitors, what
-Tycho currently believes, which strategic conclusions survived challenge, and
-exactly which evidence caused each conclusion or belief change.
-
-```bash
-just dashboard-install   # npm ci, pinned frontend dependencies
-just dashboard-build     # tsc --noEmit && vite build
-just dashboard-test      # backend suites
-just dashboard-test-ui   # Vitest + Testing Library
-just dashboard-serve     # local server against production read-only data
-```
-
-The browser holds no Google credential and never talks to Firestore, BigQuery,
-Agent Runtime, or Pub/Sub. The API uses its own Cloud Run service account, which
-is read-only on data: BigQuery data viewer, BigQuery job user, Firestore
-*viewer*, and log writer, plus `roles/run.invoker` on the strategy dispatcher
-service alone. It cannot write a claim or Delta, publish to Pub/Sub, read Cloud
-Storage, or invoke the Analyst Runtime.
-
-Every Delta query names the canonical `tycho.deltas` table and pins
-`schema_version = 'delta@2'`; the archived audit table is unreachable from
-dashboard code. Provenance resolves an exact `(claim_id, version)`: the current
-version returns the live claim, an earlier version is reconstructed from the
-claim's embedded history and labelled as reconstructed, and a version that never
-existed is a 404. The drawer shows the grounded quote already stored in the
-Delta, its observation IDs, and the source URL recorded in `tycho.yaml` — it
-never fetches a raw GCS payload.
-
-`Run Strategy Session` starts only the fixed bounded workflow, by posting
-`{"trigger": "dashboard", "period": "previous_complete_week"}` to the same
-private dispatcher the weekly Scheduler uses. There is no field for a prompt,
-model, scope, or evidence policy. Duplicate protection has two layers: the
-dashboard refuses a second run for the same period while one is in flight, and
-the shared `(period_from, period_to, strategy_version)` lease returns the
-existing session with `skipped: true` and no model call.
-
-Agent activity is reconstructed from the persisted session record — agent, state,
-counts, claim versions — and the page says so. Rejection reasons are reduced to
-deterministic class names before they become events, so Challenger prose never
-reaches the activity timeline. The full reasons are shown where they belong: in
-the collapsed **Rejected by Challenger** section of the brief.
-
-### Deploy and open it
-
-```bash
-just dashboard-plan       # what would be created; contacts nothing
-just dashboard-deploy     # confirmation required; builds, then a resumable deploy
-just dashboard-readback   # read every deployed resource back
-just dashboard-verify     # read-only end-to-end verification of the deployed service
-just dashboard-grant member=user:someone@example.com   # confirmation required
-```
-
-The service is private. An unauthenticated browser request returns `403`, which
-is the expected result. Open it with your own identity:
-
-```bash
-gcloud run services proxy tycho-dashboard --region us-central1 \
-  --project gen-lang-client-0110801105
-# then open http://127.0.0.1:8080
-```
-
-The deployment tool reuses the analyst-path guard and adds the strategy
-resources to it. Its one permitted write against a protected resource is exactly
-`roles/run.invoker` on `tycho-strategy-dispatcher` for the dashboard service
-account; a wider role, a different member, or a different verb is refused.
-
-See `docs/intelligence-dashboard-evidence.org` for the deployed resource IDs,
-the exact IAM, the demo sequence, and the production verification.
-
-## Calibrate the Gemini analyst
-
-```bash
-just calibrate
-```
-
-The Python ADK analyst runs in shadow mode for meaningful local deltas. Its tool
-proposals are validated and logged in SQLite, while the deterministic stub
-remains authoritative locally. Cloud Run uses the same lifecycle tools in live
-mode through Vertex/ADC authentication; the `.env` API key is never uploaded.
-The worked-example suite covers price facts, redundancy, supersession,
-cross-source fusion, no-action, third-party disputes, and primary-source dispute
-resolution.
-
-Set `TYCHO_ANALYST_MODEL` to override the default `gemini-3.5-flash-lite`. The
-credential lives only in the gitignored `.env`, which is also excluded from
-Cloud Run source uploads. Rotate it before sharing the project.
-
-## Inspect production without changing it
-
-```bash
-just audit           # strict Delta@2 candidate table audit; exits nonzero on failures
-just cutover-check   # cutover inventory and validation queries
-```
-
-Both read BigQuery, GCS, and Firestore only. `just audit` reloads every
-candidate row through the strict Delta model, re-verifies comparison IDs,
-observation identity, chronology, raw payload hashes, and canonical metadata,
-rebuilds the normalized before/after bundles, and reruns the current grounding
-and policy validation. Its JSON output is bounded to IDs, counts, and failure
-classes; it calls no model and writes nothing.
-
-## Deploy
-
-```bash
-just deploy          # confirmation required
-just cutover-apply   # confirmation required
-```
-
-Prerequisites: a billed Google Cloud project, `gcloud`, and both CLI and
-Application Default Credentials:
-
-```bash
-gcloud auth login
-gcloud auth application-default login
-gcloud config set project PROJECT_ID
-```
-
-`infra/deploy.py` enables APIs and creates billable cloud resources: a GCS
-bucket, BigQuery dataset/tables, Pub/Sub topic/subscription, Firestore database,
-private Cloud Run service, Cloud Run job, Vertex AI access, service account/IAM
-bindings, and a nightly Cloud Scheduler job. The Cloud Run analyst uses Gemini
-through the runtime service account; no `.env` credential is uploaded.
-
-The first cloud run establishes the immutable baseline. Production deployment
-accepts only `TYCHO_DIFFER_MODE=semantic`. Operational rollback pauses the
-Scheduler, preserves the failed v2 table, restores the immutable audit table
-only if required, and keeps acquisition semantic-only; it never re-enables
-Python Delta generation.
-
-## Raw commands and troubleshooting
-
-These paths have no recipe because they are one-time, argument-heavy, or
-operational. Always use the module form (`python -m infra.x`), never a file
-path.
-
-Backfill local tenure into a fresh cloud project:
-
-```bash
-uv run python -m infra.backfill_local --project PROJECT_ID
-```
-
-Backfill preserves IDs, timestamps, hashes, evidence links, and claim lifecycle;
-only local `file://` content references become `gs://` references.
-
-Read-only historical replay — loads existing observation pairs from GCS, runs
-the production builder/model/validators, and writes a bounded local report
-without BigQuery, Pub/Sub, Firestore, or claim writes:
-
-```bash
-uv run python -m experiments.semantic_delta_replay \
-  --project PROJECT_ID --output data/semantic_delta_replay.json
-```
-
-Resumable, non-publishing historical repair and the one-time claim migration:
-
-```bash
-uv run python -m infra.backfill_semantic_deltas \
-  --project PROJECT_ID --dataset tycho --dry-run
-
-uv run python -m infra.migrate_legacy_claims \
-  --project PROJECT_ID --dataset tycho --dry-run
-```
-
-The old physical Delta table is preserved as `delta_audit_log_20260826`; normal
-reads use only the fresh strict-v2 `tycho.deltas` table.
-
-Inspect a deployed environment:
-
-```bash
-gcloud scheduler jobs run tycho-nightly \
-  --location=us-central1 --project=PROJECT_ID
-
-gcloud run jobs executions list \
-  --job=tycho-acquire --region=us-central1 --project=PROJECT_ID
-
-bq query --use_legacy_sql=false \
-  'SELECT entity, status, fetched_at FROM `PROJECT_ID.tycho.observations` ORDER BY fetched_at DESC LIMIT 10'
-```
-
-## Documentation
-
-- [`docs/tycho-spec.org`](docs/tycho-spec.org) — the product/data contract
-- [`docs/architecture.md`](docs/architecture.md) — how it runs
-- [`handoff.org`](handoff.org) — current implementation and operational state
-- [`docs/strategic-agent-fleet-handoff.org`](docs/strategic-agent-fleet-handoff.org) — the strategy council brief and its split start gate
-- [`docs/strategic-agent-fleet-evidence.org`](docs/strategic-agent-fleet-evidence.org) — what the local strategy implementation actually did
-- [`docs/intelligence-dashboard-handoff.org`](docs/intelligence-dashboard-handoff.org) — the dashboard brief
-- [`docs/intelligence-dashboard-evidence.org`](docs/intelligence-dashboard-evidence.org) — the deployed dashboard, its IAM, and its production verification
-- [`docs/semantic-delta-deployment-evidence.org`](docs/semantic-delta-deployment-evidence.org)
+Apache-2.0. See [`LICENSE`](LICENSE).

@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Tycho cue card — not recorded</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101614;
+        --panel: #17211e;
+        --ink: #f3f7f5;
+        --muted: #9db0aa;
+        --accent: #58d0c5;
+        --line: #32443f;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-width: 360px;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.35 ui-sans-serif, system-ui, sans-serif;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 9px 12px;
+      }
+      .status {
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .clock {
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+      }
+
+      main {
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+        min-height: 0;
+        padding: 12px;
+      }
+      .action {
+        margin: 0;
+        color: var(--ink);
+        font-size: clamp(20px, 5vw, 30px);
+        font-weight: 850;
+        letter-spacing: -0.025em;
+        line-height: 1.08;
+      }
+      .detail {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .next {
+        margin: 13px 0 0;
+        border-top: 1px solid var(--line);
+        color: var(--accent);
+        font-size: 12px;
+        padding-top: 9px;
+      }
+      .next strong { color: var(--ink); }
+
+      footer {
+        display: grid;
+        gap: 7px;
+        padding: 0 12px 11px;
+      }
+      .progress-shell {
+        height: 5px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--line);
+      }
+      .progress {
+        width: 0;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent);
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      button {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--ink);
+        cursor: pointer;
+        font: inherit;
+        padding: 4px 8px;
+      }
+      button:hover { border-color: var(--accent); }
+      kbd {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--panel);
+        color: var(--ink);
+        padding: 2px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="status" id="status">Ready — not recorded</span>
+      <span class="clock" id="clock">0:00.0 / 3:45.8</span>
+    </header>
+
+    <main aria-live="polite">
+      <h1 class="action" id="action">Press Ctrl+Shift+F8</h1>
+      <p class="detail" id="detail">The cue timer and OBS narration will start together.</p>
+      <p class="next" id="next">First: <strong>hold on dashboard + ontology</strong></p>
+    </main>
+
+    <footer>
+      <div class="progress-shell"><div class="progress" id="progress"></div></div>
+      <div class="controls">
+        <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F8</kbd> starts</span>
+        <button type="button" id="reset">Reset</button>
+      </div>
+    </footer>
+
+    <script>
+      "use strict";
+
+      const DURATION = 225.835;
+      const cues = [
+        {
+          at: 0,
+          action: "HOLD: dashboard + ontology",
+          detail: "Point once: Entity → governed branches",
+        },
+        {
+          at: 23.077,
+          action: "TRACE: ontology + metrics",
+          detail: "Product → Capabilities / Roadmap • claim chain • weekly facts",
+        },
+        {
+          at: 43.693,
+          action: "SCROLL: Brief + Agent Activity",
+          detail: "Show the 06:02 UTC run events",
+        },
+        {
+          at: 68.209,
+          action: "EXPAND: rejected conclusion",
+          detail: "Keep all three rejection reasons visible",
+        },
+        {
+          at: 81.748,
+          action: "HOME + CLICK: Refresh strategy brief",
+          detail: "Click once • hold on the lease-return message",
+        },
+        {
+          at: 99.816,
+          action: "OPEN: Claude Code → View evidence",
+          detail: "Claim version → Delta → quote → Observation IDs",
+        },
+        {
+          at: 120.157,
+          action: "ESC, then Ctrl+2: Architecture",
+          detail: "Trace acquisition → Analyst → Strategy Council",
+        },
+        {
+          at: 159.702,
+          action: "Ctrl+3: Agent Registry",
+          detail: "Point to Tycho Analyst and Tycho Strategy Council",
+        },
+        {
+          at: 181.432,
+          action: "Ctrl+4: Cloud Run",
+          detail: "Public dashboard • two private dispatchers",
+        },
+        {
+          at: 189.8,
+          action: "Ctrl+5: Cloud Scheduler",
+          detail: "Nightly at 02:00 • weekly Council at 06:00",
+        },
+        {
+          at: 199.8,
+          action: "Ctrl+6: Cloud Trace",
+          detail: "Show seven spans and one Gemini generation",
+        },
+        {
+          at: 211.15,
+          action: "Ctrl+1: dashboard closing shot",
+          detail: "Show the empty brief • stop moving the cursor",
+        },
+        {
+          at: 225.835,
+          action: "STOP: Ctrl+Shift+F10",
+          detail: "Then Ctrl+Shift+F7 to return to STANDBY",
+        },
+      ];
+
+      const status = document.querySelector("#status");
+      const clock = document.querySelector("#clock");
+      const action = document.querySelector("#action");
+      const detail = document.querySelector("#detail");
+      const next = document.querySelector("#next");
+      const progress = document.querySelector("#progress");
+      const resetButton = document.querySelector("#reset");
+
+      let startedAt = null;
+      let frame = null;
+      let currentCue = -1;
+
+      function format(seconds) {
+        const safe = Math.max(0, seconds);
+        const minutes = Math.floor(safe / 60);
+        return `${minutes}:${(safe % 60).toFixed(1).padStart(4, "0")}`;
+      }
+
+      function showCue(index, elapsed) {
+        if (index !== currentCue) {
+          currentCue = index;
+          action.textContent = cues[index].action;
+          detail.textContent = cues[index].detail;
+        }
+
+        const upcoming = cues[index + 1];
+        if (upcoming) {
+          const remaining = Math.max(0, upcoming.at - elapsed);
+          next.innerHTML = `Next in <strong>${remaining.toFixed(1)}s</strong>: ${upcoming.action}`;
+        } else {
+          next.innerHTML = "Recording should now be stopped.";
+        }
+      }
+
+      function tick(now) {
+        const elapsed = Math.min((now - startedAt) / 1000, DURATION);
+        let index = cues.length - 1;
+        for (let i = 0; i < cues.length; i += 1) {
+          if (cues[i].at > elapsed) {
+            index = Math.max(0, i - 1);
+            break;
+          }
+        }
+
+        showCue(index, elapsed);
+        clock.textContent = `${format(elapsed)} / 3:45.8`;
+        progress.style.width = `${Math.min(100, (elapsed / DURATION) * 100)}%`;
+
+        if (elapsed < DURATION) {
+          frame = requestAnimationFrame(tick);
+        } else {
+          status.textContent = "Finished — stop recording";
+          status.style.color = "#ffbc66";
+          frame = null;
+        }
+      }
+
+      function start() {
+        if (startedAt !== null) return;
+        startedAt = performance.now();
+        status.textContent = "Running — not captured";
+        status.style.color = "var(--accent)";
+        frame = requestAnimationFrame(tick);
+      }
+
+      function reset() {
+        if (frame !== null) cancelAnimationFrame(frame);
+        startedAt = null;
+        frame = null;
+        currentCue = -1;
+        status.textContent = "Ready — not recorded";
+        status.style.color = "var(--accent)";
+        clock.textContent = "0:00.0 / 3:45.8";
+        progress.style.width = "0";
+        action.textContent = "Press Ctrl+Shift+F8";
+        detail.textContent = "The cue timer and OBS narration will start together.";
+        next.innerHTML = "First: <strong>hold on dashboard + ontology</strong>";
+      }
+
+      window.addEventListener("keydown", (event) => {
+        if (event.ctrlKey && event.shiftKey && event.code === "F8") {
+          event.preventDefault();
+          start();
+        }
+        if (event.ctrlKey && event.shiftKey && event.code === "F7") {
+          reset();
+        }
+      });
+      resetButton.addEventListener("click", reset);
+    </script>
+  </body>
+</html>

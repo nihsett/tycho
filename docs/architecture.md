@@ -83,9 +83,9 @@ Council only through the existing private dispatcher:
 
 ```
  browser (no Google credential, no database access)
-        │  same-origin HTTPS, private Cloud Run, IAM-authenticated
+        │  same-origin HTTPS; public judging read surface
         ▼
- Cloud Run tycho-dashboard  (min 0 / max 1, own service account)
+ Cloud Run tycho-dashboard  (min 0 / max 1, read-only service account)
    ├── static bundle (React/TypeScript/Vite, built ahead of deploy)
    └── FastAPI read model
          ├── Firestore  claims, strategy sessions, briefs   (datastore.viewer)
@@ -165,7 +165,7 @@ writes nothing back into them:
 | Strategy schedule | Cloud Scheduler (`tycho-strategy-weekly`) | — | Monday 06:00 UTC (`0 6 * * 1`); OIDC to the strategy dispatcher only; its body is a static period *name*, so it cannot widen the window |
 | Dashboard read model | Python | `dashboard/api/readmodel.py` | named query methods; canonical `delta@2` only, exact claim versions, deterministic active/stale/disputed counts, bounded pagination |
 | Dashboard read source | Python | `dashboard/api/source.py` | the complete store surface a dashboard read may touch: nine read methods, no write, no GCS, no archive table |
-| Dashboard API | FastAPI | private Cloud Run (`tycho-dashboard`), own service account, min 0 / max 1 | strict bounded response models; CSP and secure headers; same-origin only; structural logs |
+| Dashboard API | FastAPI | public Cloud Run judging instance (`tycho-dashboard`), read-only service account, min 0 / max 1 | strict bounded response models; CSP and secure headers; same-origin writes only; structural logs |
 | Dashboard frontend | React / TypeScript / Vite | served by the same Cloud Run service | one typed API client, closed SSE enum, no `dangerouslySetInnerHTML` |
 | Dashboard strategy trigger | Python | `dashboard/api/runs.py` | posts the fixed trigger to the existing private dispatcher; duplicate-safe in-process and through the shared lease |
 | Q&A agent | ADK agent | Cloud Run | claims-only answers with evidence citations; refuses when no claim covers the question |
