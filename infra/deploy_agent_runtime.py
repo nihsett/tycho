@@ -262,7 +262,7 @@ def runtime_deployment_config(args: argparse.Namespace) -> dict[str, Any]:
             "TYCHO_DATASET": "tycho",
             "TYCHO_CONFIG": "tycho.yaml",
             "TYCHO_ANALYST_MODE": args.analyst_mode,
-            "TYCHO_ANALYST_MODEL": "gemini-3.5-flash-lite",
+            "TYCHO_ANALYST_MODEL": "gemini-3.7-flash",
             "TYCHO_RUNTIME_LOCATION": args.location,
             "GOOGLE_CLOUD_LOCATION": "global",
             "GOOGLE_API_USE_CLIENT_CERTIFICATE": "true",

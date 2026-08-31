@@ -172,7 +172,7 @@ def main() -> None:
     )
     analyst_env = (
         f"{runtime_env},TYCHO_ANALYST_MODE=live,"
-        "TYCHO_ANALYST_MODEL=gemini-3.5-flash-lite,"
+        "TYCHO_ANALYST_MODEL=gemini-3.7-flash,"
         "GOOGLE_GENAI_USE_ENTERPRISE=true,"
         f"GOOGLE_CLOUD_PROJECT={args.project},GOOGLE_CLOUD_LOCATION=global"
     )

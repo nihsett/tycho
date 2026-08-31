@@ -61,7 +61,7 @@ def test_dispatcher_extracts_only_bounded_runtime_result():
                                     "state": "completed",
                                     "action": "no_action",
                                     "analyst_version": "gemini-analyst@1",
-                                    "model": "gemini-3.5-flash-lite",
+                                    "model": "gemini-3.7-flash",
                                 }
                             )
                         }

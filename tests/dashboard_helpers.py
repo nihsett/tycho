@@ -407,9 +407,9 @@ def build_session(
         challenges=[challenge],
         agent_versions=AgentVersions(),
         model_versions=ModelVersions(
-            strategist="gemini-3.5-flash-lite",
-            challenger="gemini-3.5-flash-lite",
-            brief_writer="gemini-3.5-flash-lite",
+            strategist="gemini-3.7-flash",
+            challenger="gemini-3.7-flash",
+            brief_writer="gemini-3.7-flash",
         ),
         state=SessionState.COMPLETED,
         metrics=SessionMetrics(

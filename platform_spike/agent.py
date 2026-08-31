@@ -11,7 +11,7 @@ from google.adk.models.google_llm import Gemini
 
 SPIKE_VERSION = "tycho-platform-spike@1"
 DEFAULT_PROJECT = "gen-lang-client-0110801105"
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.7-flash"
 
 
 def platform_probe(component: str) -> dict[str, str]:

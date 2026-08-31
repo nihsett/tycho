@@ -29,7 +29,7 @@ STRATEGIST_NAME = "tycho_strategist"
 CHALLENGER_NAME = "tycho_challenger"
 BRIEF_WRITER_NAME = "tycho_brief_writer"
 
-DEFAULT_STRATEGY_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_STRATEGY_MODEL = "gemini-3.7-flash"
 
 STRATEGIST_INSTRUCTION = f"""
 You are Tycho's strategist. The user message is a JSON context manifest of

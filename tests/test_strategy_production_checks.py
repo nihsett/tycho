@@ -63,7 +63,7 @@ def test_a_structural_span_graph_is_clean():
                 "labels": {
                     "gen_ai.operation.name": "invoke_agent",
                     "gen_ai.agent.name": "tycho_strategist",
-                    "gen_ai.request.model": "gemini-3.5-flash-lite",
+                    "gen_ai.request.model": "gemini-3.7-flash",
                     "gen_ai.usage.input_tokens": "1341",
                     "gen_ai.usage.output_tokens": "402",
                     "gcp.vertex.agent.invocation_id": "e-123",

@@ -1,0 +1,713 @@
+<title>Tycho Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+/* ========== TOKENS ========== */
+:root {
+  color-scheme: light;
+  --bg: #eef1f7;
+  --panel: #ffffff;
+  --lane: #f5f7fb;
+  --lane-bd: #d4dcea;
+  --card: #ffffff;
+  --card-bd: #c8d3e4;
+  --tx: #1a2234;
+  --tx2: #556378;
+  --tx3: #8494aa;
+
+  --blue: #2563eb;
+  --blue-bg: #eef5ff;
+  --blue-bd: #bdd6fe;
+
+  --amber: #a1620a;
+  --amber-bg: #fef8eb;
+  --amber-bd: #f5d882;
+
+  --red: #d6163e;
+  --red-bg: #fef0f2;
+  --red-bd: #fbc4cc;
+
+  --green: #058060;
+  --green-bg: #eafdf5;
+  --green-bd: #98ecc8;
+
+  --violet: #6d28d9;
+  --violet-bg: #f3f0fe;
+  --violet-bd: #bfb0f2;
+
+  --line: #93b4e8;
+  --line-head: #5b8fd6;
+  --line-dash: #b8cceb;
+  --grid-dot: rgba(0,0,0,0.035);
+  --shadow: 0 1px 4px rgba(15,23,42,0.08);
+}
+
+
+/* ========== BASE ========== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--tx);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* ========== VIEWPORT & STAGE ========== */
+.vp { width: 100%; overflow: hidden; position: relative; }
+.stage {
+  position: relative;
+  width: 1920px;
+  height: 1200px;
+  transform-origin: top left;
+}
+.stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
+  background-size: 36px 36px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ========== SVG + CANVAS LAYERS ========== */
+svg.conn {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+/* ========== HEADER ========== */
+.hdr { position: absolute; left: 48px; top: 18px; z-index: 5; }
+.hdr h1 {
+  font-family: 'Space Mono', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+.hdr .sub {
+  font-size: 13px;
+  color: var(--tx2);
+  margin-top: 4px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.hdr::before {
+  content: '';
+  position: absolute;
+  left: -60px; top: -30px;
+  width: 440px; height: 120px;
+  background: radial-gradient(ellipse, rgba(37,99,235,0.04) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ========== LANES ========== */
+.lane {
+  position: absolute;
+  left: 40px;
+  width: 1840px;
+  background: var(--lane);
+  border: 1px solid var(--lane-bd);
+  border-radius: 12px;
+  z-index: 3;
+  box-shadow: var(--shadow);
+}
+.lh {
+  position: absolute;
+  left: 18px; top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 4;
+}
+.lh .bar {
+  width: 3px;
+  height: 14px;
+  border-radius: 1.5px;
+  flex-shrink: 0;
+}
+.lh .title {
+  font-family: 'Space Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+.lh .desc {
+  font-size: 10.5px;
+  color: var(--tx3);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.lm {
+  position: absolute;
+  right: 18px; top: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  color: var(--tx3);
+  z-index: 4;
+}
+
+/* ========== CARDS ========== */
+.cd {
+  position: absolute;
+  border-radius: 7px;
+  padding: 8px 12px;
+  z-index: 5;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.cd:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+}
+.cd .nm {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.cd .dt {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--tx2);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.cd .sm {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--tx3);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.cd .mono { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+
+/* Card type accents */
+.cd.svc   { background: var(--blue-bg);   border: 1px solid var(--blue-bd);   border-left: 3px solid var(--blue); }
+.cd.agent { background: var(--amber-bg);  border: 1px solid var(--amber-bd);  border-left: 3px solid var(--amber); }
+.cd.guard { background: var(--red-bg);    border: 1px solid var(--red-bd);    border-left: 3px solid var(--red); }
+.cd.store { background: var(--green-bg);  border: 1px solid var(--green-bd);  border-left: 3px solid var(--green); }
+.cd.model { background: var(--violet-bg); border: 1px solid var(--violet-bd); border-left: 3px solid var(--violet); }
+.cd.ext   { background: var(--card);      border: 1px dashed var(--card-bd); }
+
+.cd.runtime {
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-bd);
+  border-left: 3px solid var(--amber);
+}
+.cd.runtime:hover { transform: none; box-shadow: var(--shadow); }
+
+/* ========== INNER CARDS (inside runtime containers) ========== */
+.inner {
+  position: absolute;
+  border-radius: 5px;
+  padding: 6px 10px;
+  z-index: 6;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+.inner .nm { font-size: 11px; font-weight: 600; }
+.inner .dt { font-family: 'JetBrains Mono', monospace; font-size: 8.5px; color: var(--tx2); margin-top: 2px; line-height: 1.35; }
+.inner .sm { font-family: 'JetBrains Mono', monospace; font-size: 7.5px; color: var(--tx3); margin-top: 1px; line-height: 1.3; }
+
+.inner.a { background: var(--amber-bg); border: 1px solid var(--amber-bd); }
+.inner.g { background: var(--red-bg); border: 1px solid var(--red-bd); }
+
+/* ========== CHIPS ========== */
+.chip {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin: 1.5px 2px 1.5px 0;
+  line-height: 1.3;
+}
+.chip.b { color: var(--blue); background: var(--blue-bg); border: 1px solid var(--blue-bd); }
+.chip.a { color: var(--amber); background: var(--amber-bg); border: 1px solid var(--amber-bd); }
+.chip.r { color: var(--red); background: var(--red-bg); border: 1px solid var(--red-bd); }
+.chip.g { color: var(--green); background: var(--green-bg); border: 1px solid var(--green-bd); }
+.chip.v { color: var(--violet); background: var(--violet-bg); border: 1px solid var(--violet-bd); }
+.chip.n { color: var(--tx3); background: var(--card); border: 1px solid var(--card-bd); }
+
+/* ========== TYPE TAGS ========== */
+.tag {
+  position: absolute;
+  right: 10px; top: 7px;
+  font-family: 'Space Mono', monospace;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.tag.g { color: var(--green); }
+.tag.b { color: var(--blue); }
+
+/* ========== RUBRIC BADGES ========== */
+.rb {
+  position: absolute;
+  z-index: 8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--violet);
+  background: var(--violet-bg);
+  border: 1px solid var(--violet-bd);
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* ========== PIPELINE ROW ========== */
+.pipeline {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 6;
+}
+.pipeline .step {
+  border-radius: 5px;
+  padding: 5px 7px;
+  text-align: center;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.pipeline .step .nm { font-size: 9.5px; font-weight: 600; line-height: 1.2; }
+.pipeline .step .sm { font-family: 'JetBrains Mono', monospace; font-size: 7px; color: var(--tx3); margin-top: 1px; line-height: 1.25; }
+.pipeline .step.a { background: var(--amber-bg); border: 1px solid var(--amber-bd); }
+.pipeline .step.g {
+  background: var(--red-bg);
+  border: 2px solid var(--red-bd);
+  border-radius: 6px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.pipeline .step.g .nm { font-size: 9px; font-weight: 700; color: var(--red); }
+.pipeline .step.g .sm { color: var(--red); font-size: 7px; }
+.pipeline .arr {
+  flex-shrink: 0;
+  color: var(--tx3);
+}
+
+/* ========== FOOTER ========== */
+.foot {
+  position: absolute;
+  left: 40px;
+  width: 1840px;
+  background: var(--panel);
+  border: 1px solid var(--lane-bd);
+  border-radius: 12px;
+  z-index: 5;
+  box-shadow: var(--shadow);
+  padding: 12px 22px;
+}
+.fr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fr + .fr { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--lane-bd); }
+.fl {
+  font-family: 'Space Mono', monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--tx3);
+  min-width: 128px;
+  flex-shrink: 0;
+}
+.fi {
+  font-size: 10px;
+  color: var(--tx2);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.fi b { font-weight: 600; }
+.sw {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  margin-right: 4px;
+  border: 1px solid;
+}
+
+/* ========== REDUCED MOTION ========== */
+@media (prefers-reduced-motion: reduce) {
+  .cd { transition: none; }
+  .cd:hover { transform: none; }
+}
+</style>
+
+<!-- ===================== STAGE ===================== -->
+<div class="vp">
+<div class="stage">
+
+<!-- =================== SVG CONNECTIONS =================== -->
+<svg class="conn" width="1920" height="1200" viewBox="0 0 1920 1200" fill="none">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="7" orient="auto">
+      <path d="M1 1 L9 4 L1 7Z" fill="var(--line-head)"/>
+    </marker>
+    <marker id="ahd" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="9" markerHeight="7" orient="auto">
+      <path d="M1 1 L9 4 L1 7Z" fill="var(--line-dash)"/>
+    </marker>
+  </defs>
+
+  <!-- Solid flow lines -->
+  <g stroke="var(--line)" stroke-width="2" marker-end="url(#ah)" fill="none">
+    <!-- Lane 1: Sources → Acquire -->
+    <path d="M268,141 L296,141 L296,180 L318,180"/>
+    <!-- Lane 1: Scheduler → Acquire -->
+    <path d="M268,204 L296,204 L296,180 L318,180"/>
+    <!-- Lane 1: Acquire → Gemma screen -->
+    <path d="M468,244 L468,254"/>
+    <!-- Lane 1: Acquire → Flash -->
+    <path d="M618,178 L672,207"/>
+    <!-- Lane 1: Flash → Validator -->
+    <path d="M958,207 L1012,207"/>
+    <!-- Lane 1: Acquire → Cloud Storage -->
+    <path d="M618,142 L1290,142"/>
+    <!-- Lane 1: Validator → BigQuery -->
+    <path d="M1098,207 L1290,221"/>
+    <!-- Lane 1: BigQuery bottom → Pub/Sub top -->
+    <path d="M1574,256 L1574,266"/>
+    <!-- Cross-lane: Pub/Sub → Lane 2 Dispatcher -->
+    <path d="M1290,294 L168,294 L168,384"/>
+    <!-- Lane 2: Dispatcher → Runtime 1 -->
+    <path d="M278,432 L318,454"/>
+    <!-- Lane 2: Runtime 1 → Memory Bank -->
+    <path d="M1238,454 L1290,442"/>
+    <!-- Lane 3: Scheduler → Dispatcher -->
+    <path d="M168,650 L168,652"/>
+    <!-- Lane 3: Dispatcher → Runtime 2 -->
+    <path d="M278,695 L318,669"/>
+    <!-- Lane 3: Runtime 2 → Sessions -->
+    <path d="M1238,669 L1290,638"/>
+    <!-- Lane 4: Browser → Dashboard -->
+    <path d="M278,862 L318,862"/>
+    <!-- Lane 4: Dashboard trigger -->
+    <path d="M500,828 L500,790"/>
+  </g>
+
+  <!-- Dashed read lines -->
+  <g stroke="var(--line-dash)" stroke-width="1.2" stroke-dasharray="5 4" fill="none">
+    <!-- Dashboard reads from storage column -->
+    <path d="M1238,862 L1270,862 L1270,142" marker-end="url(#ahd)"/>
+    <!-- Memory Bank feedback → Acquire -->
+    <path d="M1290,500 L1274,500 L1274,100 L618,100 L618,116" marker-end="url(#ahd)"/>
+  </g>
+
+  <!-- Connection labels -->
+  <g font-family="'JetBrains Mono', monospace" font-size="8.5" fill="var(--tx3)" font-weight="500">
+    <text x="820" y="136">raw payloads</text>
+    <text x="1140" y="200">deltas (canonical)</text>
+    <text x="620" y="288">push: delta_id (validated envelope)</text>
+    <text x="1242" y="448" text-anchor="end">claim writes (tool layer)</text>
+    <text x="1242" y="664" text-anchor="end">brief + session (atomic)</text>
+    <text x="506" y="796">run strategy · period trigger</text>
+    <text x="840" y="94" fill="var(--tx3)" font-size="8" font-style="italic">operational claims (feedback)</text>
+    <text x="1276" y="600" font-size="7.5" transform="rotate(-90 1276 600)">reads — own SA</text>
+  </g>
+</svg>
+
+
+<!-- =================== HEADER =================== -->
+<header class="hdr">
+  <h1>TYCHO <span style="color:var(--tx3);font-weight:400">&mdash;</span> COMPETITIVE INTELLIGENCE FLEET</h1>
+  <p class="sub">Four ADK agents &middot; two isolated runtimes &middot; adversarial strategy council</p>
+</header>
+
+<!-- =================== LANE 1: WATCH & RECORD =================== -->
+<div class="lane" style="top:82px; height:260px">
+  <div class="lh">
+    <span class="bar" style="background:var(--blue)"></span>
+    <span class="title">WATCH &amp; RECORD</span>
+    <span class="desc">&mdash; nightly acquisition</span>
+  </div>
+  <span class="lm">deterministic &middot; no model call until content changes</span>
+</div>
+
+<!-- Public Sources -->
+<div class="cd ext" style="left:58px; top:116px; width:210px; height:50px">
+  <div class="nm">Public Sources</div>
+  <div class="dt">GitHub &middot; changelogs &middot; RSS</div>
+</div>
+
+<!-- Cloud Scheduler -->
+<div class="cd svc" style="left:58px; top:174px; width:210px; height:60px">
+  <div class="nm">Cloud Scheduler</div>
+  <div class="dt">tycho-nightly</div>
+  <div class="sm">02:00 UTC daily &middot; OIDC &rarr; job</div>
+</div>
+
+<!-- tycho-acquire -->
+<div class="cd svc" style="left:318px; top:116px; width:300px; height:128px">
+  <div class="nm">Cloud Run job &middot; <span class="mono">tycho-acquire</span></div>
+  <div style="margin-top:6px">
+    <span class="chip b">GitHub API</span><span class="chip b">Webpage</span><span class="chip b">RSS</span><span class="chip b">Search</span>
+  </div>
+  <div style="margin-top:3px">
+    <span class="chip r">hash gate</span><span class="chip r">injection screen (Gemma)</span>
+  </div>
+  <div class="sm" style="margin-top:5px">reads operational claims pre-fetch</div>
+</div>
+
+<!-- Gemma 4 injection classifier -->
+<div class="cd model" style="left:318px; top:254px; width:300px; height:52px">
+  <div class="nm" style="color:var(--violet)">Gemma 4 &middot; injection classifier</div>
+  <div class="dt">screens fetched content before agents</div>
+  <div class="sm">regex first &middot; Gemma catches creative attempts</div>
+</div>
+
+<!-- Gemini 3.7 Flash -->
+<div class="cd model" style="left:672px; top:170px; width:286px; height:74px">
+  <div class="nm" style="color:var(--violet)">Vertex AI &middot; Gemini 3.7 Flash</div>
+  <div class="dt">semantic differ &middot; grounded quotes</div>
+  <div class="sm">bounded input &middot; no tools &middot; JSON</div>
+</div>
+
+<!-- Python validator -->
+<div class="cd guard" style="left:1012px; top:180px; width:86px; height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:4px 6px">
+  <div class="nm" style="font-size:11px; color:var(--red)">Python</div>
+  <div class="dt" style="color:var(--red); margin-top:1px">validator</div>
+</div>
+
+<!-- Cloud Storage -->
+<div class="cd store" style="left:1290px; top:108px; width:568px; height:68px">
+  <div class="nm" style="color:var(--green)">Cloud Storage</div>
+  <div class="dt">raw payloads &middot; write-once &middot; hash-verified</div>
+  <div class="sm">immutable &ldquo;what happened&rdquo; &mdash; never rewritten</div>
+  <span class="tag g">STORAGE</span>
+</div>
+
+<!-- BigQuery -->
+<div class="cd store" style="left:1290px; top:186px; width:568px; height:70px">
+  <div class="nm" style="color:var(--green)">BigQuery &middot; dataset <span class="mono" style="font-size:10px">tycho</span></div>
+  <div class="dt">observations (partitioned) &middot; deltas (canonical)</div>
+  <div class="sm">append-only &middot; archive table for rollback evidence only</div>
+  <span class="tag g">STORAGE</span>
+</div>
+
+<!-- Pub/Sub -->
+<div class="cd svc" style="left:1290px; top:266px; width:568px; height:56px">
+  <div class="nm">Pub/Sub &middot; topic <span class="mono" style="font-size:10px">tycho-deltas</span></div>
+  <div class="dt">push subscription &rarr; analyst dispatcher (auth)</div>
+  <span class="tag b">MESSAGING</span>
+</div>
+
+<!-- =================== LANE 2: BELIEVE & REVISE =================== -->
+<div class="lane" style="top:352px; height:196px">
+  <div class="lh">
+    <span class="bar" style="background:var(--amber)"></span>
+    <span class="title">BELIEVE &amp; REVISE</span>
+    <span class="desc">&mdash; the analyst</span>
+  </div>
+  <span class="lm">Agent Runtime 1 &middot; claims lifecycle enforced in the tool layer, not the prompt</span>
+</div>
+
+<!-- Analyst Dispatcher -->
+<div class="cd svc" style="left:58px; top:384px; width:220px; height:96px">
+  <div class="nm" style="font-size:11px">Cloud Run &middot; <span class="mono" style="font-size:9.5px">tycho-analyst-dispatcher</span></div>
+  <div class="dt">private &middot; push-auth</div>
+  <div class="sm">validates envelope &rarr; forwards<br>delta_id only</div>
+</div>
+
+<!-- Agent Runtime 1 container -->
+<div class="cd runtime" style="left:318px; top:370px; width:920px; height:168px">
+  <div class="nm" style="font-size:13px">Agent Runtime 1 &mdash; ANALYST</div>
+  <div class="dt" style="font-size:8.5px; color:var(--tx3)">Vertex AI managed runtime &middot; Agent Identity &middot; ADK</div>
+</div>
+<div class="rb" style="left:1120px; top:376px">AGENT REGISTRY &#10003;</div>
+
+<!-- Analyst Agent (inner) -->
+<div class="inner a" style="left:338px; top:418px; width:400px; height:58px">
+  <div class="nm">Analyst agent</div>
+  <div class="dt">Gemini 3.7 Flash &middot; source-agnostic</div>
+  <div class="sm">no direct data access &mdash; tools only</div>
+</div>
+
+<!-- Tool Layer (inner) -->
+<div class="inner g" style="left:758px; top:418px; width:460px; height:58px">
+  <div class="nm" style="color:var(--red)">Tool layer &mdash; evidence bars</div>
+  <div class="dt">create &middot; supersede &middot; adjust &middot; bump &middot; no_action</div>
+  <div class="sm">hard lifecycle rules &middot; Model Armor guard</div>
+</div>
+
+<!-- Identity chips -->
+<div style="position:absolute; left:338px; top:486px; z-index:7">
+  <span class="chip v">least-privilege SA &middot; Firestore + BQ only</span>
+</div>
+<div style="position:absolute; left:338px; top:506px; z-index:7">
+  <span class="chip r">no GCS &middot; no Pub/Sub &middot; no network egress</span>
+</div>
+
+<!-- Firestore Memory Bank -->
+<div class="cd store" style="left:1290px; top:378px; width:568px; height:128px">
+  <div class="nm" style="color:var(--green)">Firestore &mdash; MEMORY BANK</div>
+  <div class="dt">claims: versioned &middot; supersession chain</div>
+  <div class="dt">receipts: delivered once per (claim, version)</div>
+  <div class="sm">operational claims (sources/*) &rarr; watchers</div>
+  <span class="tag g">STORAGE</span>
+</div>
+
+<!-- =================== LANE 3: REASON & CHALLENGE =================== -->
+<div class="lane" style="top:558px; height:216px">
+  <div class="lh">
+    <span class="bar" style="background:var(--violet)"></span>
+    <span class="title">REASON &amp; CHALLENGE</span>
+    <span class="desc">&mdash; the strategy council</span>
+  </div>
+  <span class="lm">Agent Runtime 2 &middot; adversarial &middot; weekly &middot; Python decides what survives</span>
+</div>
+
+<!-- Strategy Scheduler -->
+<div class="cd svc" style="left:58px; top:586px; width:220px; height:64px">
+  <div class="nm">Cloud Scheduler</div>
+  <div class="dt">tycho-strategy-weekly &middot; Mon 06:00</div>
+  <div class="sm">or dashboard button &mdash; same trigger</div>
+</div>
+
+<!-- Strategy Dispatcher -->
+<div class="cd svc" style="left:58px; top:652px; width:220px; height:86px">
+  <div class="nm" style="font-size:11px">Cloud Run &middot; <span class="mono" style="font-size:9.5px">tycho-strategy-dispatcher</span></div>
+  <div class="dt">private &middot; OIDC-authenticated</div>
+  <div class="sm">accepts a period name &mdash; never<br>a date range or prompt</div>
+</div>
+
+<!-- Agent Runtime 2 container -->
+<div class="cd runtime" style="left:318px; top:574px; width:920px; height:190px">
+  <div class="nm" style="font-size:13px">Agent Runtime 2 &mdash; STRATEGY COUNCIL</div>
+  <div class="dt" style="font-size:8.5px; color:var(--tx3)">no outer model &middot; governed BaseAgent workflow &middot; ADK</div>
+</div>
+<div class="rb" style="left:1096px; top:580px">AGENT REGISTRY &#10003; &middot; TIME</div>
+
+<!-- Strategy pipeline -->
+<div class="pipeline" style="left:338px; top:622px">
+  <div class="step a" style="width:88px; height:50px">
+    <div class="nm">Council<br>BaseAgent</div>
+    <div class="sm">no model</div>
+  </div>
+  <svg class="arr" width="14" height="10" viewBox="0 0 14 10"><path d="M0 5h10M7 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="step a" style="width:94px; height:50px">
+    <div class="nm">Strategist</div>
+    <div class="sm">&le;3 draft cards<br>no tools</div>
+  </div>
+  <svg class="arr" width="14" height="10" viewBox="0 0 14 10"><path d="M0 5h10M7 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="step g" style="width:52px; height:50px">
+    <div class="nm">Py</div>
+    <div class="sm">pin &amp;<br>validate</div>
+  </div>
+  <svg class="arr" width="14" height="10" viewBox="0 0 14 10"><path d="M0 5h10M7 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="step a" style="width:94px; height:50px">
+    <div class="nm">Challenger</div>
+    <div class="sm">argues against<br>can only reject</div>
+  </div>
+  <svg class="arr" width="14" height="10" viewBox="0 0 14 10"><path d="M0 5h10M7 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="step g" style="width:52px; height:50px">
+    <div class="nm">Py</div>
+    <div class="sm">challenge<br>gate</div>
+  </div>
+  <svg class="arr" width="14" height="10" viewBox="0 0 14 10"><path d="M0 5h10M7 2l4 3-4 3" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="step a" style="width:96px; height:50px">
+    <div class="nm">Brief Writer</div>
+    <div class="sm">passed cards only<br>cites versions</div>
+  </div>
+</div>
+
+<!-- Strategy constraints -->
+<div style="position:absolute; left:338px; top:684px; z-index:7">
+  <span class="chip v">no tools &middot; no web &middot; no claim mutation &middot; read-only SA</span>
+</div>
+
+<!-- Firestore sessions -->
+<div class="cd store" style="left:1290px; top:582px; width:568px; height:112px">
+  <div class="nm" style="color:var(--green)">Firestore &middot; sessions &amp; briefs</div>
+  <div class="dt">write-once session audit &middot; cards + manifest hash</div>
+  <div class="dt">brief + terminal state + lease &mdash; one atomic commit</div>
+  <div class="sm">duplicate trigger &rarr; lease returns session, no model call</div>
+  <span class="tag g">STORAGE</span>
+</div>
+
+<!-- =================== LANE 4: READ SURFACE =================== -->
+<div class="lane" style="top:800px; height:110px">
+  <div class="lh">
+    <span class="bar" style="background:var(--blue)"></span>
+    <span class="title">READ SURFACE</span>
+    <span class="desc">&mdash; the intelligence dashboard</span>
+  </div>
+  <span class="lm">private Cloud Run &middot; IAM-authenticated &middot; browser holds no credential</span>
+</div>
+
+<!-- Browser -->
+<div class="cd ext" style="left:58px; top:828px; width:220px; height:68px">
+  <div class="nm">Browser</div>
+  <div class="dt">gcloud run services proxy</div>
+  <div class="sm">no Google credential &middot; no DB access</div>
+  <span class="tag" style="color:var(--tx3)">CLIENT</span>
+</div>
+
+<!-- Dashboard -->
+<div class="cd svc" style="left:318px; top:828px; width:920px; height:68px">
+  <div class="nm">Cloud Run &middot; <span class="mono">tycho-dashboard</span></div>
+  <div class="dt">React + Vite static bundle &middot; FastAPI read model &middot; reads canonical deltas only</div>
+  <div class="sm">read-only SA &middot; can trigger strategy runs via dispatcher</div>
+  <span class="tag b">CLOUD RUN</span>
+</div>
+
+<!-- =================== FOOTER =================== -->
+<footer class="foot" style="top:930px; height:182px">
+  <div class="fr">
+    <span class="fl">LEGEND</span>
+    <span class="fi"><span class="sw" style="background:var(--blue-bg); border-color:var(--blue-bd)"></span>GCP service</span>
+    <span class="fi"><span class="sw" style="background:var(--amber-bg); border-color:var(--amber-bd)"></span>ADK agent / runtime</span>
+    <span class="fi"><span class="sw" style="background:var(--violet-bg); border-color:var(--violet-bd)"></span>Gemini model</span>
+    <span class="fi"><span class="sw" style="background:var(--red-bg); border-color:var(--red-bd)"></span>Python gate / guardrail</span>
+    <span class="fi"><span class="sw" style="background:var(--green-bg); border-color:var(--green-bd)"></span>Storage</span>
+    <span class="fi"><span class="sw" style="background:var(--card); border-color:var(--card-bd); border-style:dashed"></span>Client / external</span>
+    <span class="fi" style="margin-left:8px">&mdash; solid = data &middot; dashed = read / control</span>
+  </div>
+
+  <div class="fr">
+    <span class="fl">ADK &amp; GCP</span>
+    <span class="fi">&#10003; Agent Registry</span>
+    <span class="fi">&#10003; Memory Bank (Firestore)</span>
+    <span class="fi">&#10003; Guardrails (Python gates + Model Armor + Gemma 4)</span>
+    <span class="fi">&#10003; Observability (Cloud Trace + Cloud Logging)</span>
+    <span class="fi">&#10003; Vertex AI Agent Runtimes</span>
+    <span class="fi">&#10003; Pub/Sub</span>
+    <span class="fi">&#10003; BigQuery</span>
+  </div>
+
+  <div class="fr">
+    <span class="fl">SECURITY &amp; DELIVERY</span>
+    <span class="fi">least-privilege IAM &middot; no allUsers &middot; no credential in browser</span>
+    <span class="fi" style="margin-left:12px">GitHub Actions CI &rarr; Cloud Build &rarr; Artifact Registry &rarr; Cloud Run</span>
+  </div>
+</footer>
+
+</div><!-- /stage -->
+</div><!-- /viewport -->
+
+<script>
+(function() {
+  var stage = document.querySelector('.stage');
+  var vp = document.querySelector('.vp');
+
+  function fit() {
+    var w = document.documentElement.clientWidth;
+    var s = Math.min(w / 1920, 1);
+    stage.style.transform = 'scale(' + s + ')';
+    vp.style.height = Math.ceil(1200 * s) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+})();
+</script>

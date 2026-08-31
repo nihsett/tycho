@@ -65,7 +65,7 @@ SCHEDULER_TIMEZONE = "Etc/UTC"
 SCHEDULER_ATTEMPT_DEADLINE = "1800s"
 DISPATCHER_TIMEOUT_SECONDS = 840
 CLOUD_RUN_TIMEOUT = "900"
-STRATEGY_MODEL = "gemini-3.5-flash-lite"
+STRATEGY_MODEL = "gemini-3.7-flash"
 
 #: The dispatcher identity gets exactly what it needs: invoke the Strategy
 #: Runtime, write structural logs, and be invoked by its own Scheduler job

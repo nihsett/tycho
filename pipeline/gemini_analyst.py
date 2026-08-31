@@ -39,7 +39,7 @@ from schemas.config import TychoConfig
 from schemas.delta import Delta, DeltaSchemaVersion, CANONICAL_GENERATED_BY, CANONICAL_PROMPT_VERSION
 
 ANALYST_VERSION = "gemini-analyst@1"
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.7-flash"
 MAX_ANALYST_INPUT_BYTES = 200_000
 MAX_ANALYST_INPUT_ESTIMATED_TOKENS = 50_000
 ANALYST_LEASE_SECONDS = 900
