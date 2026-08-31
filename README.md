@@ -6,7 +6,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB.svg)](pyproject.toml)
 
-[**Live dashboard**](https://tycho-dashboard-u2s544lf5a-uc.a.run.app) · [Devpost story](docs/devpost/story-v4.md) · [Architecture](docs/architecture.md) · [Production evidence](docs/strategic-agent-fleet-evidence.org)
+[**Live dashboard**](https://tycho-dashboard-u2s544lf5a-uc.a.run.app) · [Devpost project](https://devpost.com/software/tycho-1xekyg) · [Architecture](docs/architecture.md) · [Production evidence](docs/strategic-agent-fleet-evidence.org)
 
 ![Tycho architecture](docs/diagrams/architecture-v2.png)
 
