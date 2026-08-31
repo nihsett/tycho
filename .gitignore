@@ -26,6 +26,16 @@ video/out-v2/
 video/*.mkv
 video/*.mp4
 
+# Superseded local submission drafts and generated diagram variants.
+docs/devpost/story-v2.md
+docs/devpost/video-and-visuals.md
+docs/diagrams/architecture-deepseek*
+docs/diagrams/architecture.html
+docs/diagrams/fontfaces.min.css
+docs/diagrams/hero.py
+docs/diagrams/tycho-hero*
+video/narration.md
+
 # Editor and OS noise
 .DS_Store
 *.swp
